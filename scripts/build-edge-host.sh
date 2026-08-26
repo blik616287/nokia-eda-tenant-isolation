@@ -110,7 +110,48 @@ cloud-localds seed.iso user-data meta-data || die "cloud-localds"
 
 # -------------------------------------------------------------------- 2. VM
 phase "create VM"
-api -X DELETE "$PALETTE_ENDPOINT/v1/edgehosts/$EDGE_HOST_NAME" >/dev/null 2>&1
+# Release the host before deleting it. Palette refuses to remove an edge host that
+# is still attached to a cluster, and because that DELETE used to be fired blind the
+# failure surfaced much later as the agent looping on
+#   "edge device with uid ... already exists. Delete the device from Palette"
+# which points at the wrong thing entirely.
+for c in $(api "$PALETTE_ENDPOINT/v1/spectroclusters?limit=100" 2>/dev/null | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit()
+want='${CLUSTER_NAME:-eda-iso-demo}'
+for i in d.get('items',[]):
+    if i.get('metadata',{}).get('name')==want and i.get('status',{}).get('state')!='Deleted':
+        print(i['metadata']['uid'])" 2>/dev/null); do
+  log "releasing the host from an existing cluster ($c)"
+  api -X DELETE "$PALETTE_ENDPOINT/v1/spectroclusters/$c" >/dev/null 2>&1
+  # A cluster that never finished provisioning can sit in Deleting indefinitely and
+  # keeps the edge host in inUseClusters, which blocks the host delete. forceDelete
+  # clears it, but Palette only accepts it once the cluster is already in Deleting —
+  # hence the ordinary delete first, then this.
+  forced=0
+  for i in $(seq 1 42); do
+    st=$(api "$PALETTE_ENDPOINT/v1/spectroclusters/$c" 2>/dev/null | python3 -c "
+import json,sys
+try: print(json.load(sys.stdin).get('status',{}).get('state','GONE'))
+except Exception: print('GONE')" 2>/dev/null)
+    case "$st" in Deleted|GONE) break ;; esac
+    if [ "$st" = "Deleting" ] && [ "$forced" = 0 ] && [ "$i" -ge 6 ]; then
+      log "  cluster still Deleting after 60s — forcing"
+      api -X DELETE "$PALETTE_ENDPOINT/v1/spectroclusters/$c?forceDelete=true" >/dev/null 2>&1
+      forced=1
+    fi
+    sleep 10
+  done
+done
+
+code=$(api -X DELETE -o /dev/null -w '%{http_code}' "$PALETTE_ENDPOINT/v1/edgehosts/$EDGE_HOST_NAME" 2>/dev/null)
+case "$code" in
+  200|204|404) log "edge host record clear (HTTP $code)" ;;
+  *) die "could not remove the existing '$EDGE_HOST_NAME' edge host (HTTP $code) — it is
+        probably still attached to a cluster. Remove that cluster in Palette, then retry." ;;
+esac
+
 VIRSH destroy "$VM_NAME" >/dev/null 2>&1
 VIRSH undefine "$VM_NAME" --remove-all-storage >/dev/null 2>&1
 rm -f "${VM_NAME}.qcow2"
