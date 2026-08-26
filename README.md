@@ -35,6 +35,25 @@ make demo                 # the walkthrough, against the live fabric
 Tear down with `make clean` (fabric state) or `make destroy` (also removes the VM and its Palette
 records).
 
+### The edge host's management address moves
+
+`make host` records the VM's address in `.work/edge-ip`, and `make demo` reads it from there. That
+value goes stale: the VM reboots during the cluster deploy, and libvirt hands it a **different**
+DHCP lease each time. It changes on every reboot, not only on every rebuild.
+
+If a demo run cannot reach the host — sections 4 and 5 degrade, everything else still works — re-read
+the current address rather than trusting the recorded one:
+
+```bash
+export EDGE_IP=$(sudo virsh -c qemu:///system domifaddr eda-edge-01 \
+                 | awk '/ipv4/{print $4}' | cut -d/ -f1)
+./scripts/demo-record.sh
+```
+
+Only the *management* address moves. The tenant address is fixed by the isolation tags, so
+`enp2s0.310` stays at `10.210.0.50/24` throughout — if that one changes, something is genuinely
+wrong.
+
 ## What you need
 
 - A reachable **Nokia EDA** fabric. Developed against EDA 26.4.3 (Digital Twin) with SR Linux 26.3.1
