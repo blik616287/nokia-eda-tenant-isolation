@@ -13,7 +13,8 @@
 #   3. Fail-closed behaviour — the failure mode that is silent
 #   4. The host side — a VLAN raised from Palette tags, and k8s on that address
 #   5. Both halves at once
-#   6. What is proven, and what is not
+#   6. How Palette drives this — the ComputePool path, and what is missing
+#   7. What is proven, and what is not
 #   7. Where this stands: stylus, the PRs, and what is open
 #   8. Teardown — verified return to the baseline
 #
@@ -391,7 +392,45 @@ link "SR Linux learn — EVPN in practice" "$SRL_LEARN"
 pause
 
 # ---------------------------------------------------------------------------
-banner "6 · What is proven, and what is not"
+banner "6 · How Palette drives this — the ComputePool path"
+ctx "Everything so far drove the provider's CRs directly, because the EDA enum value is not merged upstream yet. This section shows the path a user actually takes, what it produces, and exactly which piece is still missing."
+lede "A user does not write EDA intent. They declare isolation on a ComputePool:"
+cat <<'YAML' | sed 's/^/    /'
+apiVersion: spectrocloud.com/v1alpha1
+kind: ComputePool
+spec:
+  networkIsolation:
+    provider: EDA                        # the enum value added by mural#8944
+    eda:
+      edaVirtualNetwork: tenant-a        # which isolation unit
+      subnet: gpu                        # which of its subnets -> access VLAN
+YAML
+echo
+lede "A provider-side watcher turns that into the two CRs you have already seen work:"
+note "  EDAVirtualNetwork        the isolation unit — one EDA VirtualNetwork per tenant"
+note "  EDAPortAttachmentRequest the per-pool binding — one BridgeInterface per leaf port"
+echo
+lede "That watcher is the one piece not yet written. The shipped Aviz analogue is the pattern:"
+run "sed -n '/^\/\/ ComputePoolReconciler/,/^type ComputePoolReconciler/p' \
+  \"\$FRISKET/internal/controller/aviz/computepool_controller.go\" | head -6"
+note "the EDA equivalent mirrors it: watch ComputePool, filter provider == EDA,"
+note "materialise one EDAPortAttachmentRequest owned by the pool. RFC-0021 item 13."
+echo
+lede "So the state of the chain, honestly:"
+good "EDAVirtualNetwork reconciler        written, tested, running here"
+good "EDAPortAttachmentRequest reconciler written, tested, running here"
+bad  "ComputePool -> CR watcher           NOT written — the CRs above were created directly"
+bad  "provider: EDA on a ComputePool      NOT available — mural#8944 is open, on hold"
+echo
+note "Nothing shown in sections 1-5 depends on those two. They are what turns a working"
+note "integration into something a user can reach from the product."
+echo
+link "#8944 — the enum, CEL fix and EDANetworkIsolation type" "https://github.com/spectrocloud/mural/pull/8944"
+link "#8946 — the attachment reconciler" "https://github.com/spectrocloud/mural/pull/8946"
+pause
+
+# ---------------------------------------------------------------------------
+banner "7 · What is proven, and what is not"
 TX1=$(txcount)
 ctx "Go replays cached test output byte-for-byte, so on-screen output alone cannot prove a run was live. The EDA transaction count can."
 lede "Transactions driven through EDA's engine during this session:"
@@ -415,7 +454,7 @@ link "Integration companion — §06, the full proven / not-proven table" "$COMP
 pause
 
 # ---------------------------------------------------------------------------
-banner "7 · Where this stands"
+banner "8 · Where this stands"
 ctx "Everything shown runs on code that is either merged or in review. This is the delivery picture, including what is still open and who it sits with."
 
 arc "THE STYLUS SIDE — merged"
@@ -468,7 +507,7 @@ link "#8946 — frisket: port attachment reconciler" "https://github.com/spectro
 pause
 
 # ---------------------------------------------------------------------------
-banner "8 · Teardown"
+banner "9 · Teardown"
 ctx "This session created real fabric objects. lab-gpu-01 has one cabled port, so leaving an attachment behind would make the next run fail on contention. Teardown is part of the demonstration, not an afterthought."
 if [ "${TEARDOWN:-1}" = 0 ]; then
   note "TEARDOWN=0 — demo state left in place for inspection"
