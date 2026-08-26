@@ -1,0 +1,13 @@
+# Credentials — never commit
+.env
+*.kubeconfig
+.jfrog-*
+
+# Downloaded artifact (proprietary, fetched via make agent)
+.artifacts/
+
+# Build scratch
+.work/
+*.qcow2
+*.img
+*.iso

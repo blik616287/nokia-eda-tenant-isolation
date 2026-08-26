@@ -1,0 +1,179 @@
+//go:build smoke
+
+package smoke
+
+import (
+	"context"
+	"os"
+	"testing"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	huev1alpha1 "github.com/spectrocloud/mural/hue/apis/spectrocloud.com/v1alpha1"
+
+	niv1alpha1 "github.com/spectrocloud/mural/frisket/api/v1alpha1"
+	edactrl "github.com/spectrocloud/mural/frisket/internal/controller/eda"
+	"github.com/spectrocloud/mural/frisket/pkg/eda"
+)
+
+// TestAct5Persist programs the fabric half of the demo through the real reconcilers and
+// LEAVES IT IN PLACE, so it can be shown next to the host-side VLAN that stylus raised.
+//
+// Two constraints learned the hard way, both encoded here:
+//
+//  1. The subnet is named "gpu", not "compute". A subnet name becomes an IRBInterface CR
+//     name in the EDA namespace, so two VirtualNetworks using the same subnet name collide:
+//     "CR .../IRBInterface/compute has conflicting updates". The committed smoke test uses
+//     "compute".
+//  2. This must run AFTER the smoke test has cleaned up. Both bind lab-gpu-01's only cabled
+//     port (leaf1-ethernet-1-9) on VLAN 310, and one port cannot sit in two bridge domains.
+//
+// Teardown order matters too: delete the BridgeInterface BEFORE the VirtualNetwork. Deleting
+// the VN first orphans the interface, whose dangling BridgeDomain reference then fails EVERY
+// subsequent EDA transaction until it is removed by hand.
+//
+// This file is installed and removed by demo.sh; it is not part of the committed suite.
+func TestAct5Persist(t *testing.T) {
+	kc, err := os.ReadFile(os.Getenv("EDA_KUBECONFIG"))
+	if err != nil {
+		t.Skipf("no EDA_KUBECONFIG: %v", err)
+	}
+	fabricNode := os.Getenv("EDA_FABRIC_NODE")
+	if fabricNode == "" {
+		t.Skip("no EDA_FABRIC_NODE")
+	}
+	hostUID := os.Getenv("DEMO_HOST_UID")
+	if hostUID == "" {
+		hostUID = fabricNode
+	}
+
+	const (
+		ns       = "eda"
+		unitName = "nokia-demo"
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+
+	newClient := func(context.Context, client.Client, string, string) (*eda.Client, error) {
+		return eda.New(eda.Credentials{
+			Kubeconfig: string(kc),
+			Host:       os.Getenv("EDA_HOST"),
+			Insecure:   os.Getenv("EDA_INSECURE") == "true",
+		})
+	}
+	raw, err := newClient(ctx, nil, "", "")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{
+		clientgoscheme.AddToScheme, huev1alpha1.AddToScheme, niv1alpha1.AddToScheme,
+	} {
+		if err := add(scheme); err != nil {
+			t.Fatalf("add scheme: %v", err)
+		}
+	}
+
+	unit := &niv1alpha1.EDAVirtualNetwork{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "nokia-demo-unit"},
+		Spec: niv1alpha1.EDAVirtualNetworkSpec{
+			NetworkIsolationRef: corev1.LocalObjectReference{Name: "creds"},
+			EDANamespace:        ns,
+			VirtualNetworkName:  unitName,
+			Description:         "Nokia demo tenant — mirrors the edge-host net-iso tags",
+			Subnets: []niv1alpha1.EDASubnet{
+				{Name: "gpu", Gateway: "10.210.0.1/24", VLANID: "310"},
+			},
+		},
+	}
+	attach := &niv1alpha1.EDAPortAttachmentRequest{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "nokia-demo-pool"},
+		Spec: niv1alpha1.EDAPortAttachmentRequestSpec{
+			NetworkIsolationRef: corev1.LocalObjectReference{Name: "creds"},
+			EDANamespace:        ns,
+			VirtualNetwork:      unitName,
+			Ports: []niv1alpha1.EDAPortRequest{
+				{Host: hostUID, FabricNode: fabricNode, Subnet: "gpu"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(unit, attach).
+		WithStatusSubresource(&niv1alpha1.EDAVirtualNetwork{}, &niv1alpha1.EDAPortAttachmentRequest{}).
+		Build()
+
+	unitR := &edactrl.VirtualNetworkReconciler{Client: cl, Scheme: scheme, NewClientFn: newClient}
+	attachR := &edactrl.PortAttachmentReconciler{Client: cl, Scheme: scheme, NewClientFn: newClient}
+
+	unitKey := types.NamespacedName{Namespace: unit.Namespace, Name: unit.Name}
+	attachKey := types.NamespacedName{Namespace: attach.Namespace, Name: attach.Name}
+
+	// No t.Cleanup — the fabric state is the deliverable.
+
+	var gotUnit niv1alpha1.EDAVirtualNetwork
+	deadline := time.Now().Add(4 * time.Minute)
+	for {
+		if _, err := unitR.Reconcile(ctx, ctrl.Request{NamespacedName: unitKey}); err != nil {
+			t.Fatalf("reconcile unit: %v", err)
+		}
+		if err := cl.Get(ctx, unitKey, &gotUnit); err != nil {
+			t.Fatalf("get unit: %v", err)
+		}
+		if gotUnit.Status.Ready {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("unit never became ready; origin=%s bd=%q — check for a poisoned EDA "+
+				"transaction: kubectl -n eda-system get transactionresults",
+				gotUnit.Status.Origin, gotUnit.Status.BridgeDomainName)
+		}
+		time.Sleep(5 * time.Second)
+	}
+	t.Logf("UNIT READY origin=%s bd=%s router=%s vni=%d evi=%d rt=%s",
+		gotUnit.Status.Origin, gotUnit.Status.BridgeDomainName, gotUnit.Status.RouterName,
+		gotUnit.Status.VNI, gotUnit.Status.EVI, gotUnit.Status.RouteTarget)
+
+	var gotAttach niv1alpha1.EDAPortAttachmentRequest
+	deadline = time.Now().Add(4 * time.Minute)
+	for {
+		if _, err := attachR.Reconcile(ctx, ctrl.Request{NamespacedName: attachKey}); err != nil {
+			t.Fatalf("reconcile attachment: %v", err)
+		}
+		if err := cl.Get(ctx, attachKey, &gotAttach); err != nil {
+			t.Fatalf("get attachment: %v", err)
+		}
+		if gotAttach.Status.Phase == niv1alpha1.EDAAttachmentPhaseAttached {
+			break
+		}
+		if gotAttach.Status.Phase == niv1alpha1.EDAAttachmentPhaseFailed {
+			t.Fatalf("attachment failed: %s (unmapped=%v)", gotAttach.Status.Message, gotAttach.Status.UnmappedHosts)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("attachment never reached Attached; phase=%s msg=%s", gotAttach.Status.Phase, gotAttach.Status.Message)
+		}
+		time.Sleep(5 * time.Second)
+	}
+	for _, b := range gotAttach.Status.AttachedInterfaces {
+		t.Logf("BOUND host=%s node=%s leaf=%s iface=%s bi=%s vlan=%s state=%s",
+			b.Host, b.FabricNode, b.Leaf, b.Interface, b.BridgeInterface, b.VLANID, b.OperationalState)
+	}
+
+	rz, err := raw.ReadBack(ctx, ns, unitName)
+	if err != nil {
+		t.Fatalf("readback: %v", err)
+	}
+	t.Logf("FABRIC CONFIRMS subifs=%d down=%d nodes=%d state=%s",
+		rz.SubInterfaces, rz.SubInterfacesDown, rz.Nodes, rz.OperationalState)
+	t.Logf("PERSISTED unit=%s/%s bd=%s", ns, unitName, gotUnit.Status.BridgeDomainName)
+}
