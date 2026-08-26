@@ -11,3 +11,7 @@
 *.qcow2
 *.img
 *.iso
+
+# editor scratch
+*.swp
+.*.swp
