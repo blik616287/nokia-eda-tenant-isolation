@@ -104,8 +104,8 @@ destroy: clean
 	     "$$PALETTE_ENDPOINT/v1/spectroclusters/$$cid" -o /dev/null -w '  cluster delete HTTP %{http_code}\n'; \
 	   sleep 20; \
 	 fi; \
-	 virsh destroy $(VM_NAME) >/dev/null 2>&1; \
-	 virsh undefine $(VM_NAME) --remove-all-storage >/dev/null 2>&1; \
+	 sudo virsh -c $${LIBVIRT_URI:-qemu:///system} destroy $(VM_NAME) >/dev/null 2>&1; \
+	 sudo virsh -c $${LIBVIRT_URI:-qemu:///system} undefine $(VM_NAME) --remove-all-storage >/dev/null 2>&1; \
 	 echo "  VM removed"; \
 	 curl -sk -X DELETE -H "ApiKey: $$PALETTE_API_KEY" -H "ProjectUid: $$PALETTE_PROJECT_UID" \
 	   "$$PALETTE_ENDPOINT/v1/edgehosts/$(EDGE_HOST)" -o /dev/null -w '  edge host delete HTTP %{http_code}\n'

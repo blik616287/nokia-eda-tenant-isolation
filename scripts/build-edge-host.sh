@@ -47,7 +47,18 @@ for v in PALETTE_ENDPOINT PALETTE_API_KEY PALETTE_PROJECT_UID \
 : "${VM_MEMORY_MB:=8192}"
 : "${VM_VCPUS:=4}"
 : "${VM_DISK_GB:=40}"
+# libvirt connection. The system instance is the default because session mode has
+# no networks of its own — `--network network=default` only exists under
+# qemu:///system — and because /var/lib/libvirt/images is root-owned, so
+# virt-install must run privileged to open it as a storage pool.
+: "${LIBVIRT_URI:=qemu:///system}"
 : "${LIBVIRT_IMAGES:=/var/lib/libvirt/images}"
+# Privileged only when targeting the system instance; a session URI needs no sudo.
+case "$LIBVIRT_URI" in
+  *system*) VIRT_SUDO="sudo" ;;
+  *)        VIRT_SUDO="" ;;
+esac
+VIRSH(){ $VIRT_SUDO virsh -c "$LIBVIRT_URI" "$@"; }
 : "${AGENT_TAR:=$ROOT/.artifacts/agent-mode-linux-amd64.tar}"
 : "${WORKDIR:=$ROOT/.work}"
 
@@ -100,8 +111,8 @@ cloud-localds seed.iso user-data meta-data || die "cloud-localds"
 # -------------------------------------------------------------------- 2. VM
 phase "create VM"
 api -X DELETE "$PALETTE_ENDPOINT/v1/edgehosts/$EDGE_HOST_NAME" >/dev/null 2>&1
-virsh destroy "$VM_NAME" >/dev/null 2>&1
-virsh undefine "$VM_NAME" --remove-all-storage >/dev/null 2>&1
+VIRSH destroy "$VM_NAME" >/dev/null 2>&1
+VIRSH undefine "$VM_NAME" --remove-all-storage >/dev/null 2>&1
 rm -f "${VM_NAME}.qcow2"
 
 qemu-img convert -O qcow2 noble.img "${VM_NAME}.qcow2"        || die "convert"
@@ -111,17 +122,22 @@ sudo cp seed.iso "$LIBVIRT_IMAGES/${VM_NAME}-seed.iso"        || die "copy seed"
 sudo chown libvirt-qemu:kvm "$LIBVIRT_IMAGES/${VM_NAME}.qcow2" "$LIBVIRT_IMAGES/${VM_NAME}-seed.iso"
 
 # Two NICs: management, plus the fabric-facing NIC the tags name.
-virt-install --name "$VM_NAME" --memory "$VM_MEMORY_MB" --vcpus "$VM_VCPUS" \
+$VIRT_SUDO virt-install --connect "$LIBVIRT_URI" \
+  --name "$VM_NAME" --memory "$VM_MEMORY_MB" --vcpus "$VM_VCPUS" \
   --disk "path=$LIBVIRT_IMAGES/${VM_NAME}.qcow2,format=qcow2,bus=virtio" \
   --disk "path=$LIBVIRT_IMAGES/${VM_NAME}-seed.iso,device=cdrom" \
   --network "network=${LIBVIRT_NETWORK:-default},model=virtio" \
   --network "network=${LIBVIRT_NETWORK:-default},model=virtio" \
-  --os-variant ubuntu24.04 --graphics none --noautoconsole --import >/dev/null 2>&1 \
-  || die "virt-install"
+  --os-variant ubuntu24.04 --graphics none --noautoconsole --import 2>&1 | sed 's/^/    /' \
+  || true
+VIRSH dominfo "$VM_NAME" >/dev/null 2>&1 \
+  || die "virt-install did not create $VM_NAME (see the error above). If it is a permissions
+        or network error, check LIBVIRT_URI=$LIBVIRT_URI — session mode has no 'default'
+        network and cannot read $LIBVIRT_IMAGES."
 
 IP=""
 for _ in $(seq 1 60); do
-  IP=$(virsh domifaddr "$VM_NAME" 2>/dev/null | awk '/ipv4/{print $4}' | cut -d/ -f1 | head -1)
+  IP=$(VIRSH domifaddr "$VM_NAME" 2>/dev/null | awk '/ipv4/{print $4}' | cut -d/ -f1 | head -1)
   [ -n "$IP" ] && break
   sleep 5
 done
@@ -199,10 +215,37 @@ print(json.dumps({
    "poolConfig":{"name":"cp-pool","isControlPlane":True,
                  "labels":["control-plane"],"size":1}}]}}))
 PY
-CID=$(api -X POST -H 'Content-Type: application/json' -d @"$WORKDIR/cluster.json" \
-      "$PALETTE_ENDPOINT/v1/spectroclusters/edge-native" 2>/dev/null \
-      | python3 -c "import json,sys;print(json.load(sys.stdin).get('uid',''))" 2>/dev/null)
-[ -n "$CID" ] || die "cluster not created — check CLUSTER_PROFILE_UID and PROFILE_VARIABLES"
+# A cluster of this name may survive an earlier run. Palette rejects a duplicate
+# name outright, so clear it first — otherwise every run after the first fails.
+OLD=$(api "$PALETTE_ENDPOINT/v1/spectroclusters?limit=100" 2>/dev/null | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit()
+for i in d.get('items',[]):
+    m=i.get('metadata',{})
+    if m.get('name')=='${CLUSTER_NAME:-eda-iso-demo}' and (i.get('status',{}).get('state') != 'Deleted'):
+        print(m.get('uid'))" 2>/dev/null)
+for c in $OLD; do
+  log "removing an existing '${CLUSTER_NAME:-eda-iso-demo}' cluster ($c)"
+  api -X DELETE "$PALETTE_ENDPOINT/v1/spectroclusters/$c" >/dev/null 2>&1
+  for _ in $(seq 1 30); do
+    st=$(api "$PALETTE_ENDPOINT/v1/spectroclusters/$c" 2>/dev/null | python3 -c "
+import json,sys
+try: print(json.load(sys.stdin).get('status',{}).get('state','GONE'))
+except Exception: print('GONE')" 2>/dev/null)
+    case "$st" in Deleted|GONE) break ;; esac
+    sleep 10
+  done
+done
+
+RESP=$(api -X POST -H 'Content-Type: application/json' -d @"$WORKDIR/cluster.json" \
+       "$PALETTE_ENDPOINT/v1/spectroclusters/edge-native" 2>/dev/null)
+CID=$(printf '%s' "$RESP" | python3 -c "import json,sys;print(json.load(sys.stdin).get('uid',''))" 2>/dev/null)
+if [ -z "$CID" ]; then
+  log "Palette rejected the cluster request:"
+  printf '%s\n' "$RESP" | head -c 500 | sed 's/^/    /'
+  die "cluster not created"
+fi
 log "cluster $CID"
 echo "$CID" > "$WORKDIR/cluster-id"
 
