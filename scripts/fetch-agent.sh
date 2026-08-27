@@ -22,6 +22,11 @@ ROOT="$(cd "$HERE/.." && pwd)"
 : "${AGENT_SHA256:=833a6c93e7e381fcb57d63020106c9d79068e5a4f7b4d6aefae8121b00219502}"
 DEST="$ROOT/.artifacts/agent-mode-linux-amd64.tar"
 
+if [ -f "$DEST" ] && [ "$(sha256sum "$DEST" | cut -d' ' -f1)" = "$AGENT_SHA256" ]; then
+  echo "  agent already present and verified: $DEST"
+  exit 0
+fi
+
 if [ -z "${JFROG_TOKEN:-}" ] || [ "${JFROG_TOKEN}" = "REPLACE_ME" ]; then
   cat >&2 <<EOF
 JFROG_TOKEN is not set.
@@ -37,11 +42,6 @@ EOF
 fi
 
 mkdir -p "$(dirname "$DEST")"
-
-if [ -f "$DEST" ] && [ "$(sha256sum "$DEST" | cut -d' ' -f1)" = "$AGENT_SHA256" ]; then
-  echo "  agent already present and verified: $DEST"
-  exit 0
-fi
 
 URL="$JFROG_URL/artifactory/$JFROG_REPO/$AGENT_PATH"
 echo "  downloading $AGENT_VERSION from $JFROG_REPO …"
