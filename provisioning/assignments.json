@@ -1,0 +1,27 @@
+{
+  "_comment": [
+    "What a provisioning system knows about a host BEFORE the host exists.",
+    "MAC and pool come from inventory (in production, from the DHCP relay's Option 82",
+    "circuit-id, which names the leaf port the request arrived on -- so nothing has to",
+    "look the host up at all). Pool -> tenant is a Palette decision: RFC-0021 item 13,",
+    "the ComputePool watcher, is what will own it.",
+    "'address' is a reservation, not a derivation. The tenant's SUBNET comes from the",
+    "fabric; which address inside it belongs to this host is an IPAM decision that",
+    "nothing currently owns. Carrying it here makes that gap visible instead of",
+    "hiding it behind an allocator we have not agreed on."
+  ],
+  "hosts": {
+    "52:54:00:26:9a:5e": {
+      "name": "lab-gpu-01",
+      "pool": "gpu-pool-a",
+      "interface": "enp2s0",
+      "address": "10.210.0.50"
+    }
+  },
+  "pools": {
+    "gpu-pool-a": {
+      "tenant": "nokia-demo",
+      "vlan": 310
+    }
+  }
+}

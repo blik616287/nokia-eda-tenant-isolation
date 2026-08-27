@@ -82,6 +82,8 @@ easy to get wrong and both fail in ways worth knowing:
 | Path | Purpose |
 |---|---|
 | `scripts/demo-record.sh` | The walkthrough. Eight sections, live against the fabric, tears its own state down. |
+| `scripts/demo-bootstrap.sh` | The bootstrap dependency: a host boots knowing only its MAC and is served its isolation values. |
+| `scripts/provision-endpoint.py` | Derives those values live from the fabric. Fails closed when the address does not fit the tenant. |
 | `scripts/build-edge-host.sh` | Edge host from nothing to a live tenant VLAN, ~4½ min, timed per phase. |
 | `scripts/fetch-agent.sh` | Pulls and verifies the pinned agent build. |
 | `testdata/act5-driver.gotest` | Drives the provider's reconcilers so fabric state persists for the side-by-side comparison. |
