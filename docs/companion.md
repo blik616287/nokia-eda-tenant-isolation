@@ -232,14 +232,19 @@ So the honest one-line scope: **we put the right switch ports in the right tenan
 up the node interface on the matching VLAN.** We do not configure rails on the host.
 
 **This is where the two sides of the conversation currently disagree, and it is worth surfacing
-rather than smoothing over.** Nokia's position is that an AI deployment needs at least two networks
+rather than smoothing over — it changes what gets built, and it is cheaper to settle now than during
+an integration.** Our understanding of Nokia's position, which we would rather have corrected than
+build against, is that an AI deployment needs at least two networks
 configured per host — north/south, and east/west for RDMA and storage — with smart NICs (BlueField,
 ConnectX) in scope. Our own network architecture takes the opposite view: node-prep deliberately
 leaves rail NICs address-less and NV-IPAM assigns them per workload inside the cluster, so the host
 side of east/west is not the edge agent's job and doing it there would collide with the tooling that
 already owns it.
 
-Both can be true at once, and we think they are: **the fabric must put every rail port in the right
+Most of the surface is not in dispute, and it is worth saying so before the part that is: every
+rail port has to sit in the right tenant's VRF on the fabric, that is ours, it is modelled as one
+`BridgeInterface` per port, and it is what the demonstration shows. Both positions can be true at
+once, and we think they are: **the fabric must put every rail port in the right
 tenant's VRF** — that part is squarely ours and already modelled — **while the host side of the rails
 stays with NV-IPAM.** What is genuinely unresolved is whether anything needs to configure rail
 interfaces *on the host* beyond that, and if so, whether that belongs to the edge agent at all. We
