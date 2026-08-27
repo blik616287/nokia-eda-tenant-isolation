@@ -1,5 +1,6 @@
 # Nokia EDA tenant isolation — reproduction targets.
 #
+#   make profile  create + publish the cluster profile from profile/
 #   make deps     check every prerequisite, name what is missing
 #   make agent    download + verify the pinned edge-agent build
 #   make host     build the edge host from nothing (~4½ min)
@@ -23,12 +24,18 @@ EDGE_HOST ?= lab-gpu-01
 EDGE_IP ?= $(shell cat $(ROOT)/.work/edge-ip 2>/dev/null)
 
 .DEFAULT_GOAL := help
-.PHONY: help deps agent host demo demo-tyler demo-palette demo-bootstrap verify clean destroy env
+.PHONY: help profile deps agent host demo demo-tyler demo-palette demo-bootstrap verify clean destroy env
 
 help:
-	@sed -n 's/^#   //p' $(MAKEFILE_LIST) | head -13
+	@sed -n 's/^#   //p' $(MAKEFILE_LIST) | head -14
 	@echo ""
 	@echo "Start here:  cp .env.example .env  &&  \$$EDITOR .env  &&  make deps"
+
+# The profile is three packs and its k3s values are mirrored in profile/, so it
+# can be rebuilt rather than clicked together. packUid/registryUid are specific
+# to a Palette instance -- override them in .env; the script says how to find them.
+profile:
+	@bash $(ROOT)/scripts/create-profile.sh
 
 # ---------------------------------------------------------------- prereqs
 REQUIRED := curl python3 kubectl qemu-img virsh virt-install cloud-localds sshpass go

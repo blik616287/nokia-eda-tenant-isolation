@@ -26,6 +26,7 @@ Neither half reads the other. They agree because both derive from the same decla
 
 ```bash
 cp .env.example .env      # then fill it in — see "Configuration" below
+make profile              # create + publish the three-pack cluster profile
 make deps                 # names anything missing
 make agent                # download + checksum the pinned edge-agent build
 make host                 # build the edge host from nothing  (~4½ minutes)
@@ -71,6 +72,12 @@ wrong.
   | k8s | `edge-k3s` | 1.35.3 |
   | cni | `cni-calico` | 3.32.0 |
 
+  `make profile` builds exactly that and publishes it; the k3s values live in
+  `profile/edge-k3s.values.yaml` so the profile is reproducible rather than clicked together.
+  The `packUid`/`registryUid` in `profile/profile.json` are specific to our Palette instance —
+  override them in `.env`, and `scripts/create-profile.sh` documents how to read yours off any
+  existing edge-native profile.
+
   Nothing else. Addons are not just unnecessary here, they actively fail: a single-node edge cluster's
   only node is the control plane and carries `node-role.kubernetes.io/control-plane:NoSchedule`, so
   any pack whose chart has no toleration for it sits `Pending` forever. Removing the taint by hand
@@ -108,6 +115,8 @@ fails in a way that looks like a cluster still coming up.
 | `scripts/demo-bootstrap.sh` | The bootstrap dependency: a host boots knowing only its MAC and is served its isolation values. |
 | `scripts/provision-endpoint.py` | Derives those values live from the fabric. Fails closed when the address does not fit the tenant. |
 | `scripts/build-edge-host.sh` | Edge host from nothing to a live tenant VLAN, ~4½ min, timed per phase. |
+| `profile/` | The cluster profile: three packs, and the k3s values that make them work. |
+| `scripts/create-profile.sh` | Builds and publishes that profile against your Palette instance. |
 | `scripts/fetch-agent.sh` | Pulls and verifies the pinned agent build. |
 | `testdata/act5-driver.gotest` | Drives the provider's reconcilers so fabric state persists for the side-by-side comparison. |
 | `docs/companion.md` | Written for Nokia EDA engineers: architecture, findings, and the ask. |

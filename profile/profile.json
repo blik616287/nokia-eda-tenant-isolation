@@ -1,0 +1,33 @@
+{
+  "name": "edge-eda-minimal",
+  "cloudType": "edge-native",
+  "packs": [
+    {
+      "name": "edge-native-byoi",
+      "layer": "os",
+      "type": "oci",
+      "version": "2.1.0",
+      "packUid": "6a29d4e06365d06c4c305b5d",
+      "registryUid": "6a29d4836365d069f678a95a",
+      "values": null
+    },
+    {
+      "name": "edge-k3s",
+      "layer": "k8s",
+      "type": "oci",
+      "version": "1.35.3",
+      "packUid": "6a29d73c6365d07abd555e2e",
+      "registryUid": "6a29d4836365d069f678a95a",
+      "values": "edge-k3s.values.yaml"
+    },
+    {
+      "name": "cni-calico",
+      "layer": "cni",
+      "type": "oci",
+      "version": "3.32.0",
+      "packUid": "6a29d6fe6365d07977048a1c",
+      "registryUid": "6a29d4836365d069f678a95a",
+      "values": null
+    }
+  ]
+}

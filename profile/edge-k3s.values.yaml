@@ -1,0 +1,60 @@
+# k3s pack overrides for single-node edge agent mode
+#
+# IMPORTANT: cluster.config MUST be a literal block string (|), not a nested
+# YAML object. The stylus agent unmarshals it as type string and writes it
+# verbatim to /etc/rancher/k3s/config.yaml on the host.
+
+cluster:
+  config: |
+    # Disable Traefik — Istio provides ingress via its own gateway.
+    # Keep servicelb ENABLED so Istio's ingressgateway gets an IP via k3s's
+    # built-in load balancer on bare-metal / edge hardware.
+    disable:
+      - traefik
+      - local-storage
+      # k3s ships its own metrics-server via its addon controller, which creates
+      # system:metrics-server without Helm ownership metadata. Palette then tries
+      # to helm install metrics-server on top and Helm refuses to adopt objects it
+      # does not own, failing every reconcile and holding the cluster in
+      # Provisioning. Let Palette own it.
+      - metrics-server
+
+    # Disable k3s's built-in Flannel so Calico CNI pack takes over.
+    flannel-backend: none
+    disable-network-policy: true
+
+    # CIDR ranges (must match Calico's defaults).
+    cluster-cidr: "192.168.0.0/16"
+    service-cidr: "192.169.0.0/16"
+
+    # Required by the stylus operator to manage the cluster.
+    write-kubeconfig: /run/kubeconfig
+    write-kubeconfig-mode: 600
+
+    # Etcd snapshots for single-node resilience.
+    etcd-snapshot-schedule-cron: "0 */1 * * *"
+    etcd-snapshot-retention: 12
+
+    # Hardened API server args.
+    kube-apiserver-arg:
+      - anonymous-auth=true
+      - profiling=false
+      - disable-admission-plugins=AlwaysAdmit
+      - default-not-ready-toleration-seconds=60
+      - default-unreachable-toleration-seconds=60
+      - enable-admission-plugins=AlwaysPullImages,NamespaceLifecycle,ServiceAccount,NodeRestriction,DefaultTolerationSeconds
+      - audit-log-path=/var/log/apiserver/audit.log
+      - audit-policy-file=/etc/kubernetes/audit-policy.yaml
+      - audit-log-maxage=30
+      - audit-log-maxbackup=10
+      - audit-log-maxsize=100
+      - authorization-mode=RBAC,Node
+    kube-controller-manager-arg:
+      - profiling=false
+      - terminated-pod-gc-threshold=25
+      - use-service-account-credentials=true
+    kubelet-arg:
+      - read-only-port=0
+      - event-qps=0
+      - protect-kernel-defaults=true
+      - rotate-server-certificates=true
