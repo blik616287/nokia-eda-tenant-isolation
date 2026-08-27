@@ -193,30 +193,61 @@ pause || return
 
 beat_4(){
 # ------------------------------------------------------------------
-banner "4 · Those tag values are VLANs EDA configured"
-ctx "The tags are not free text. Each one names something that exists on the Nokia fabric — the VLAN, and the tenant bridge domain carrying it."
-lede "The tenants configured on the fabric, with identifiers EDA allocated:"
+banner "4 · What those tag values are, on the fabric"
+ctx "The tags are not free text — each names something on the Nokia fabric. Two different sets of objects appear below and they are worth keeping apart: the tenants that exist to demonstrate overlapping address space, and this host's own tenant, which is a different thing carrying a different VLAN."
+arc "THE BASELINE TENANTS — what isolation buys you"
+lede "Two tenants configured on the fabric, with identifiers EDA allocated:"
 run "kubectl --context $KCTX -n $NS get bridgedomains"
 note "VNI, EVI and route targets come from EDA's allocator — we read them back, never compute them"
 echo
-lede "Both tenants answer at the same gateway address, on different bridge domains:"
+lede "Both answer at the same gateway address, on different bridge domains:"
 for t in tenant-a tenant-b; do
   printf '    %s%-10s%s ' "$B" "$t" "$R"
   k get virtualnetwork "$t" -o jsonpath='gateway={.spec.irbInterfaces[0].spec.ipAddresses[0].ipv4Address.ipPrefix}  bd={.spec.irbInterfaces[0].spec.bridgeDomain}' 2>/dev/null
   echo
 done
 good "Overlapping tenant address space, separated by EVPN — the property this exists to provide."
+note "These two exist to show that property. They are NOT this host's tenant, and the"
+note "VLANs above are not the tag value. That is the next block, and it is a different"
+note "set of objects."
 echo
-lede "And the per-host attachments, as the fabric itself reports them:"
+
+arc "THIS HOST'S VLAN"
+tagvlan=$(curl -sk -H "ApiKey: $PALETTE_API_KEY" -H "ProjectUid: $PROJECT" \
+            "$PALETTE/v1/edgehosts?limit=30" 2>/dev/null | DEMO_HOST_UID="$DEMO_HOST_UID" python3 -c '
+import json,os,sys
+want=os.environ["DEMO_HOST_UID"]
+try:
+    for i in json.load(sys.stdin).get("items",[]):
+        if i["metadata"]["name"]==want:
+            print((i["metadata"].get("labels") or {}).get("net-iso-vlan","")); break
+except Exception: pass' 2>/dev/null)
+: "${tagvlan:=${NET_ISO_VLAN:-310}}"
+lede "The tag on the host record names VLAN $tagvlan. Every attachment the fabric holds:"
 run "kubectl --context $KCTX -n $NS get bridgeinterfaces -o custom-columns=INTERFACE:.metadata.name,BRIDGE-DOMAIN:.spec.bridgeDomain,PORT:.spec.interface,VLAN:.spec.vlanID,STATE:.status.operationalState"
-note "One row is one leaf port placed into one tenant. That is the entire per-host unit —"
-note "no agent on the switch, no per-host state anywhere except this."
 echo
-note "The TOTAL SUBIF column in the first table is the check that matters, and it is"
-note "reported by a DIFFERENT object than the one we wrote. EDA accepts a BridgeInterface"
-note "before the transaction that programs the switch has committed, so an API success"
-note "proves only that the intent was recorded — not that the port moved. Readiness is"
-note "gated on the bridge domain's own numSubinterfaces instead."
+match=$(k get bridgeinterfaces -o jsonpath="{range .items[?(@.spec.vlanID=='$tagvlan')]}{.metadata.name} {.spec.interface} {.spec.bridgeDomain}{\"\n\"}{end}" 2>/dev/null | head -1)
+if [ -n "$match" ]; then
+  set -- $match
+  good "VLAN $tagvlan is on the fabric: port $2, bridge domain $3."
+  good "That is the tag value from the host record, on the switch. Not a coincidence and"
+  good "not something we typed twice — the next pages show both ends of it."
+else
+  note "VLAN $tagvlan is NOT on the fabric yet, and in the full walkthrough that is"
+  note "deliberate: section 0 cleared this demo's own objects before anything was"
+  note "claimed, so you can watch the tenant being created and the port bound rather"
+  note "than take our word that they were already there."
+  note "Right now the tag is a statement of intent and nothing has acted on it. Section"
+  note "12 acts on it, and shows the same VLAN on the leaf port and on the machine at"
+  note "the same moment."
+fi
+echo
+if k get bridgeinterface standalone-on-populated-vn >/dev/null 2>&1; then
+  note "standalone-on-populated-vn in the table above is neither: it is baseline state"
+  note "from earlier verification, on a different port (leaf1-ethernet-1-7) in tenant-a."
+  note "It is left in place deliberately, so the clean-slate check in section 0 has"
+  note "something to distinguish 'baseline' from 'left behind by the last run'."
+fi
 pause || return
 }
 
