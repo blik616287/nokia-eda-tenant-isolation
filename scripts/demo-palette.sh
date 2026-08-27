@@ -145,6 +145,17 @@ for t in tenant-a tenant-b; do
   echo
 done
 good "Overlapping tenant address space, separated by EVPN — the property this exists to provide."
+echo
+lede "And the per-host attachments, as the fabric itself reports them:"
+run "kubectl --context $KCTX -n $NS get bridgeinterfaces -o custom-columns=INTERFACE:.metadata.name,BRIDGE-DOMAIN:.spec.bridgeDomain,PORT:.spec.interface,VLAN:.spec.vlanID,STATE:.status.operationalState"
+note "One row is one leaf port placed into one tenant. That is the entire per-host unit —"
+note "no agent on the switch, no per-host state anywhere except this."
+echo
+note "The TOTAL SUBIF column in the first table is the check that matters, and it is"
+note "reported by a DIFFERENT object than the one we wrote. EDA accepts a BridgeInterface"
+note "before the transaction that programs the switch has committed, so an API success"
+note "proves only that the intent was recorded — not that the port moved. Readiness is"
+note "gated on the bridge domain's own numSubinterfaces instead."
 pause
 
 # ---------------------------------------------------------------- 5

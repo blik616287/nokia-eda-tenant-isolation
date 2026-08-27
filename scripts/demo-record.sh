@@ -267,7 +267,7 @@ pause
 sec_2(){
 # ---------------------------------------------------------------------------
 banner "2 · A GPU host bound to its physical leaf port"
-ctx "EDA has no server-name-keyed API — nothing answers 'which port is host X on'. We close that by reverse-indexing the Day-0 cabling intent: edge TopoLinks whose remote.node names the host. This is the part we would most like reviewed."
+ctx "EDA has no server-name-keyed API — nothing answers 'which port is host X on'. We close that by reverse-indexing the Day-0 cabling intent: edge TopoLinks whose remote.node names the host. This is the part Nokia reviewed, and the part we are changing."
 lede "Running the provider's reconcilers against the live fabric."
 if [ -z "${EDA_KUBECONFIG:-}" ]; then
   note "EDA_KUBECONFIG not set — showing the cabling intent rather than the live run"
@@ -278,6 +278,10 @@ for i in json.load(sys.stdin)['items']:
         if l.get('type')=='edge' and (l.get('remote') or {}).get('node'):
             print(l['local']['node'], l['local']['interfaceResource'], '->', l['remote']['node'])\""
 else
+  note "What follows is the provider's conformance suite driven against this fabric. It"
+  note "creates a throwaway tenant (rc-smoke-*), binds a host to a leaf port, asks the"
+  note "fabric to confirm it, then removes everything. The host identifier is a test"
+  note "fixture; the fabric node, the leaf port and the VLAN are the real ones."
   out=$(gotest go test -count=1 -tags smoke ./internal/smoke/... \
           -run TestReconcilersAgainstLiveCluster -v 2>&1); rc=$?
   printf '%s\n' "$out" | grep -E "UNIT READY|BOUND |FABRIC CONFIRMS|--- PASS" | sed 's/^ *//;s/^/    /' || true
@@ -289,13 +293,27 @@ else
   fi
 fi
 echo
-note "UNIT READY       tenant VPC realised; VNI/EVI/RT returned by the fabric"
-note "BOUND            a Palette host resolved to a physical leaf port, and attached"
-note "FABRIC CONFIRMS  the bridge domain independently reporting the sub-interface"
+note "Reading those three lines:"
 echo
-good "The third line is EDA confirming the change, not us reading back our own write."
-note "EDA accepts a BridgeInterface before the transaction programming it commits, so an"
-note "API success alone is not evidence — readiness is gated on numSubinterfaces instead."
+note "UNIT READY       the tenant network exists. The VNI, EVI and route target on that"
+note "                 line were allocated by EDA and read back — none of them supplied"
+note "                 by us. Identical values run to run would mean we had computed them."
+note "BOUND            the host was resolved to the one leaf port it is cabled to, and"
+note "                 that port placed into the tenant: leaf1, ethernet-1-9, VLAN 310."
+note "FABRIC CONFIRMS  a DIFFERENT object — the bridge domain — reporting how many"
+note "                 sub-interfaces it now carries. One. That is the fabric agreeing"
+note "                 with the request, not the request being read back to itself."
+echo
+good "Only the third line is evidence."
+note "EDA accepts a BridgeInterface before the transaction that programs the switch has"
+note "committed. An API success therefore proves the intent was recorded, not that the"
+note "port was moved. Readiness is gated on the bridge domain's numSubinterfaces — a"
+note "field the live CRDs and the documentation disagree about, and the CRDs win."
+echo
+note "On the resolution above: your review is that an edge TopoLink should describe the"
+note "switch side only, and we accept that. The reverse-index is being replaced by the"
+note "leaf port carried directly on the host record — RFC-0021 §4e. What is bound, and"
+note "how the fabric confirms it, is unchanged either way."
 echo
 link "Integration companion — §04.3, host-to-port resolution" "$COMPANION"
 link "RFC 8365 — Network Virtualization Overlay Solution Using EVPN" "$RFC8365"
