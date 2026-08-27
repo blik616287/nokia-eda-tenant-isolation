@@ -3,7 +3,8 @@
 #   make deps     check every prerequisite, name what is missing
 #   make agent    download + verify the pinned edge-agent build
 #   make host     build the edge host from nothing (~4½ min)
-#   make demo     run the walkthrough against the live fabric
+#   make demo     run the walkthrough against the live fabric (Nokia cut)
+#   make demo-tyler  same evidence, led by the ComputePool path (Palette cut)
 #   make verify   prove the last demo run was live, not cached
 #   make clean    tear down demo fabric state
 #   make destroy  clean, plus remove the VM and its Palette records
@@ -20,10 +21,10 @@ EDGE_HOST ?= lab-gpu-01
 EDGE_IP ?= $(shell cat $(ROOT)/.work/edge-ip 2>/dev/null)
 
 .DEFAULT_GOAL := help
-.PHONY: help deps agent host demo verify clean destroy env
+.PHONY: help deps agent host demo demo-tyler verify clean destroy env
 
 help:
-	@sed -n 's/^#   //p' $(MAKEFILE_LIST) | head -8
+	@sed -n 's/^#   //p' $(MAKEFILE_LIST) | head -9
 	@echo ""
 	@echo "Start here:  cp .env.example .env  &&  \$$EDITOR .env  &&  make deps"
 
@@ -67,6 +68,22 @@ host: agent
 demo:
 	@test -n "$(EDGE_IP)" || { echo "EDGE_IP unset — run 'make host', or export EDGE_IP=<addr>"; exit 1; }
 	@EDGE_IP=$(EDGE_IP) FRISKET=$(FRISKET) bash $(ROOT)/scripts/demo-record.sh
+
+# Same script, same evidence, different running order.
+#
+# The default cut is written for Nokia EDA engineers: it opens on the fabric and
+# what "isolated" means in EVPN terms, then works outward to the host.
+#
+# This cut answers the Palette-side question instead — "inventory, select hosts,
+# create a compute pool, apply isolation" — so it leads with section 6, the
+# ComputePool path and the piece of it that is not written yet, then shows the
+# sections that back it up. Section 1 (fabric internals) is dropped; every other
+# section runs, and the numbering is unchanged, so cross-references still hold.
+DEMO_TYLER_SECTIONS ?= 0 6 2 4 5 3 7 8 9
+demo-tyler:
+	@test -n "$(EDGE_IP)" || { echo "EDGE_IP unset — run 'make host', or export EDGE_IP=<addr>"; exit 1; }
+	@EDGE_IP=$(EDGE_IP) FRISKET=$(FRISKET) SECTIONS="$(DEMO_TYLER_SECTIONS)" \
+	  bash $(ROOT)/scripts/demo-record.sh
 
 # Liveness proof: a cached Go test replays byte-for-byte, so output alone proves
 # nothing. EDA transactions do not lie — a live run moves this counter.

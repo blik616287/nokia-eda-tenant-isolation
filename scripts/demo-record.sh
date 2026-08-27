@@ -187,6 +187,16 @@ survey(){
 }
 
 # =============================================================================
+# Sections are functions so a run can present them in a different order. The
+# numbering never changes — only which are run and in what sequence — so a
+# cross-reference like "see section 5" stays true whichever cut you use.
+#
+# Bodies are deliberately NOT re-indented: section 6 contains a heredoc whose
+# closing delimiter must stay at column 0.
+# =============================================================================
+
+title(){
+# =============================================================================
 clear
 printf '%s%s\n' "$B$TEAL" '
    ███████ ██████   ███████  ██████ ████████ ██████   ██████
@@ -200,7 +210,9 @@ note "   $(date -u +%Y-%m-%d)  ·  EDA 26.4.3 Digital Twin  ·  SR Linux 26.3.1 
 echo
 link "Integration companion — architecture, findings, and the ask" "$COMPANION"
 TX0=$(txcount)
+}
 
+sec_0(){
 # ---------------------------------------------------------------------------
 banner "0 · Clean-slate check"
 ctx "Leftover state can make a fabric look healthy while an orphaned object silently fails every EDA transaction. Nothing below is claimed until the starting state is verified."
@@ -224,7 +236,9 @@ else
   note "edge host $EDGE_IP has no enp2s0.310 — sections 4 and 5 will be limited"
 fi
 pause
+}
 
+sec_1(){
 # ---------------------------------------------------------------------------
 banner "1 · The fabric, and what \"isolated\" means here"
 ctx "Isolation here is an EVPN construct, not a firewall rule: a MAC-VRF per tenant with its own EVI and route targets, so two tenants can carry identical address space without seeing each other."
@@ -248,7 +262,9 @@ link "EDA documentation" "$EDA_DOCS"
 link "SR Linux documentation" "$SRL_DOCS"
 link "RFC 7432 — BGP MPLS-Based Ethernet VPN" "$RFC7432"
 pause
+}
 
+sec_2(){
 # ---------------------------------------------------------------------------
 banner "2 · A GPU host bound to its physical leaf port"
 ctx "EDA has no server-name-keyed API — nothing answers 'which port is host X on'. We close that by reverse-indexing the Day-0 cabling intent: edge TopoLinks whose remote.node names the host. This is the part we would most like reviewed."
@@ -284,7 +300,9 @@ echo
 link "Integration companion — §04.3, host-to-port resolution" "$COMPANION"
 link "RFC 8365 — Network Virtualization Overlay Solution Using EVPN" "$RFC8365"
 pause
+}
 
+sec_3(){
 # ---------------------------------------------------------------------------
 banner "3 · Fail-closed behaviour"
 ctx "Tenant isolation fails in a specific way: a host that is NOT attached looks identical to one that is healthy. Nothing errors and nothing alerts, so the design has to treat partial success as failure."
@@ -303,7 +321,9 @@ note "Each of these behaviours was verified by removing it and confirming the su
 echo
 link "RFC-0014 — the pluggable network-isolation provider slot" "$RFC0014"
 pause
+}
 
+sec_4(){
 # ---------------------------------------------------------------------------
 banner "4 · The host side — a VLAN raised from tags"
 ctx "Isolation is established in cloud-init, before Kubernetes starts: the node IP and the CNI come up ON the isolated interface. Anything delivered after a cluster is healthy is too late to participate — which is why this is a provider rather than an add-on."
@@ -354,7 +374,9 @@ link "Palette — project overview" "$PALETTE/projects/$PROJECT/overview"
 link "stylus #6354 — resolve the fabric NIC, build the VLAN sub-interface" "https://github.com/spectrocloud/stylus/pull/6354"
 link "stylus #6394 — aviz-* renamed net-iso-* so a second provider shares the path" "https://github.com/spectrocloud/stylus/pull/6394"
 pause
+}
 
+sec_5(){
 # ---------------------------------------------------------------------------
 banner "5 · Both halves, at the same time"
 ctx "Each half has been shown separately. This is the same VLAN on the leaf port and on the host cabled to it, placed there by two subsystems with no knowledge of each other."
@@ -390,7 +412,9 @@ echo
 link "Integration companion — §02, the two halves" "$COMPANION"
 link "SR Linux learn — EVPN in practice" "$SRL_LEARN"
 pause
+}
 
+sec_6(){
 # ---------------------------------------------------------------------------
 banner "6 · How Palette drives this — the ComputePool path"
 ctx "Everything so far drove the provider's CRs directly, because the EDA enum value is not merged upstream yet. This section shows the path a user actually takes, what it produces, and exactly which piece is still missing."
@@ -428,7 +452,9 @@ echo
 link "#8944 — the enum, CEL fix and EDANetworkIsolation type" "https://github.com/spectrocloud/mural/pull/8944"
 link "#8946 — the attachment reconciler" "https://github.com/spectrocloud/mural/pull/8946"
 pause
+}
 
+sec_7(){
 # ---------------------------------------------------------------------------
 banner "7 · What is proven, and what is not"
 TX1=$(txcount)
@@ -452,7 +478,9 @@ note "with several fabric-facing NICs, nor against a fabric with thousands of ed
 echo
 link "Integration companion — §06, the full proven / not-proven table" "$COMPANION"
 pause
+}
 
+sec_8(){
 # ---------------------------------------------------------------------------
 banner "8 · Where this stands"
 ctx "Everything shown runs on code that is either merged or in review. This is the delivery picture, including what is still open and who it sits with."
@@ -505,7 +533,9 @@ link "#9124 — hue: policy-step EDA case" "https://github.com/spectrocloud/mura
 link "#8945 — frisket: EDA client + isolation unit" "https://github.com/spectrocloud/mural/pull/8945"
 link "#8946 — frisket: port attachment reconciler" "https://github.com/spectrocloud/mural/pull/8946"
 pause
+}
 
+sec_9(){
 # ---------------------------------------------------------------------------
 banner "9 · Teardown"
 ctx "This session created real fabric objects. lab-gpu-01 has one cabled port, so leaving an attachment behind would make the next run fail on contention. Teardown is part of the demonstration, not an afterthought."
@@ -528,3 +558,15 @@ echo
 link "Integration companion" "$COMPANION"
 link "EDA documentation" "$EDA_DOCS"
 printf '\n%s   Thank you.%s\n\n' "$B$TEAL" "$R"
+}
+
+# ---------------------------------------------------------------------------
+# Default is the full run in numeric order. Override SECTIONS to change the cut;
+# `make demo-tyler` leads with the ComputePool path.
+SECTIONS="${SECTIONS:-0 1 2 3 4 5 6 7 8 9}"
+
+title
+for s in $SECTIONS; do
+  if declare -F "sec_$s" >/dev/null; then "sec_$s"
+  else printf "%s     unknown section: %s%s\n" "$RED" "$s" "$R"; fi
+done
