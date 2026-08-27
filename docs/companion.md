@@ -19,10 +19,9 @@ Five things, in descending order of how much they block us:
    single gap between "the integration works" and "isolation is proven".
 2. **Confirm or correct §7** — a handful of places where the 26.4 documentation and the live 26.4.3
    API disagree, and two behaviours we rely on that we would rather have confirmed than inferred.
-3. **A supported way to read LLDP neighbour state** (§7.4). You told us the `TopoLink.remote.node`
-   lookup was the wrong approach and we agree — we are replacing it with the leaf port supplied
-   directly, so we read nothing from your topology intent. LLDP is where we would rather end up, and
-   we could not find a query API for it.
+3. **The inventory / port-mapping API you offered** (§9). You said EDA can expose host → switch-port
+   mapping, either from static inventory or from LLDP discovery. That is the piece we most want, and
+   §9 is the contract we would consume — please tell us where it is wrong rather than building to it.
 4. **Confirm a bridge domain per tenant is the right shape** (§7.5). Tenants get whole servers or
    racks, so we believe we do not need `MicroSegmentationPolicy` for this model — but you built it,
    and we would rather hear that from you than assume it.
@@ -224,8 +223,21 @@ two tenants at the identical gateway, separated by EVPN, not by address planning
 | **Management / out-of-band** | site infrastructure | **Unsolved at scale** — see below |
 
 So the honest one-line scope: **we put the right switch ports in the right tenant's VRF, and we bring
-up the node interface on the matching VLAN.** We do not configure rails on the host, and we are not
-trying to.
+up the node interface on the matching VLAN.** We do not configure rails on the host.
+
+**This is where the two sides of the conversation currently disagree, and it is worth surfacing
+rather than smoothing over.** Nokia's position is that an AI deployment needs at least two networks
+configured per host — north/south, and east/west for RDMA and storage — with smart NICs (BlueField,
+ConnectX) in scope. Our own network architecture takes the opposite view: node-prep deliberately
+leaves rail NICs address-less and NV-IPAM assigns them per workload inside the cluster, so the host
+side of east/west is not the edge agent's job and doing it there would collide with the tooling that
+already owns it.
+
+Both can be true at once, and we think they are: **the fabric must put every rail port in the right
+tenant's VRF** — that part is squarely ours and already modelled — **while the host side of the rails
+stays with NV-IPAM.** What is genuinely unresolved is whether anything needs to configure rail
+interfaces *on the host* beyond that, and if so, whether that belongs to the edge agent at all. We
+would rather settle that explicitly than discover it in an integration.
 
 **The bootstrap dependency, stated plainly.** Configuring a host's primary interface from a
 controller the host reaches *over that interface* is circular. We avoid it here by carrying the
@@ -404,7 +416,40 @@ against a fabric with thousands of edge links.
 
 ---
 
-## 9. Reference
+## 9. The inventory contract we would consume
+
+You offered host → switch-port mapping from EDA, either static inventory or LLDP discovery. This is
+what we would call and what we would do with each field, written as a proposal so you can correct it
+rather than guess at our needs.
+
+**What we need, per host:**
+
+| Field | Why we need it | Consequence if absent |
+|---|---|---|
+| host identifier | join key back to our compute inventory | cannot correlate at all |
+| leaf switch + interface (e.g. `leaf1`, `ethernet-1-9`) | becomes `BridgeInterface.spec.interface` | the host cannot be attached |
+| all interfaces for that host, not just one | an HGX-class host has eight rails; every one must land in the tenant's VRF | a missed rail is a silent data-plane leak |
+| whether the mapping was **discovered** or **declared** | we would treat a stale LLDP entry differently from an operator-declared one | we cannot reason about staleness |
+| last-seen / observed-at, for discovered entries | decide whether to trust a mapping for a host that has been down | we would have to trust it blindly |
+
+**What we do not need from you:** subnet, VLAN ID or mask. Those come from the tenant's isolation
+unit on our side — the VLAN is a property of which tenant the pool belongs to, not of the cabling.
+If you would rather own subnet allocation as well, that is a larger conversation and worth having
+explicitly (§8) rather than by implication.
+
+**Two properties that matter more than the schema.** First, we fail closed: a host we cannot map
+fails the *entire* pool request with no fabric write, so a partial or silently-empty response is
+safer than a guessed one — please prefer an error to an empty list. Second, we would poll this on
+reconcile rather than cache it, so a mapping that changes when a machine is re-cabled should be
+reflected without us being told.
+
+**Until it exists**, the leaf port is supplied on the attachment request from our own inventory
+(§7.4). That keeps us unblocked and is the static-inventory case in your own framing; the API
+replaces the hand-maintained half of it.
+
+---
+
+## 10. Reference
 
 **API groups used:** `services.eda.nokia.com/v2` (VirtualNetwork, BridgeDomain, BridgeInterface,
 IRBInterface, Router), `core.eda.nokia.com/v1` (TopoNode, TopoLink, Transaction, TransactionResult).
