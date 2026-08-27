@@ -240,6 +240,44 @@ already integrated do it. The constraint is vendor coverage: today's integration
 switch vendor's hardware. EDA is what makes the same guarantee available on SR Linux, which is the
 entire reason this work exists.
 
+### 5.2 Networks beyond the tenant VLAN — where this stops
+
+Everything above concerns one network: the tenant VLAN the node comes up on. Real deployments have
+more, and the shape is not ours to choose. One hoster runs a single large multi-tenant storage
+environment where every customer needs a **shared** storage VLAN with **non-conflicting** addresses.
+Another gives each customer storage native to their own environment with no sharing at all. There is
+no single answer — every site implements something different.
+
+That matters because a shared network inverts the property §5.1 relies on. Per-tenant isolation
+*wants* overlapping address space; a shared storage VLAN *forbids* it, because everyone is talking to
+the same targets. The two need opposite IPAM disciplines.
+
+We checked how much of this the current model already supports, rather than assuming:
+
+**The fabric side already handles it.** A host can sit on several networks at once. Two
+`EDAPortAttachmentRequest`s — one for the tenant, one for shared storage — produce two
+`BridgeInterface`s on the *same* physical port with different VLAN IDs, which is ordinary
+sub-interface trunking. Our duplicate-port guard is per-request and keys on the derived binding name,
+so it correctly rejects two hosts on one port without blocking one host on one port in two networks.
+Nothing needs to change here.
+
+**The host side does not.** The isolation tag contract carries exactly one interface —
+`net-iso-interface`, `net-iso-vlan`, one address — and the agent's internal representation is a
+single struct, not a list. The documented meaning of that address is that it *becomes the node IP*.
+So the node's tenant VLAN is expressible and a second, shared VLAN is not. Supporting one would mean
+extending the tag contract, which is a change in the edge agent rather than in this provider.
+
+**IPAM is undefined for the shared case.** We allocate tenant gateway addresses on the assumption
+that overlap between tenants is fine, because that is the whole point. A shared network needs
+allocation that is unique *across* tenants. Nothing in the model currently distinguishes the two, and
+it should not be inferred from the network's name.
+
+**The design principle we would rather hold to.** Do not encode a storage topology in the provider.
+It expresses one thing — *attach this pool's ports to this named network* — and which networks are
+shared, which are isolated, and how each is addressed stays a property of the deployment. That keeps
+the provider correct across sites that have arranged things differently, which on this evidence is
+all of them.
+
 ---
 
 ## 6. What is proven, and what is not
@@ -254,6 +292,7 @@ entire reason this work exists.
 | **Traffic cannot cross between tenants** | **NOT proven** — needs `SIMULATE=false` + licence |
 | Multi-rail hosts, pool scaling on real hardware | **NOT proven** — needs hardware |
 | Fleet-scale bootstrap without PXE / out-of-band provisioning | **NOT proven** — see §5.1 |
+| A host on more than one network (e.g. shared storage VLAN) | **Fabric side supported; host side not** — see §5.2 |
 
 We are explicit about the last two because the first five are stronger if we are not overstating.
 
