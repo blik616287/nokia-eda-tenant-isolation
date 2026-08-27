@@ -284,16 +284,31 @@ run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDG
 note "host-network pods (calico-node, kube-vip) carry 10.210.0.50 — the isolated address."
 note "pod-network pods carry Calico pool addresses."
 echo
-lede "So does the pod network actually ride the tenant VLAN? Ask the kernel:"
-run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'ip route get 10.210.0.99; ip -brief addr show tunl0'"
+lede "So does the pod network actually ride the tenant VLAN? Put the question to the kernel:"
+rssh 'ip route get 10.210.0.99; ip -brief addr show tunl0' \
+     'ip route get 10.210.0.99; ip -brief addr show tunl0'
 echo
-good "Traffic to any peer node leaves on enp2s0.310, sourced from 10.210.0.50."
-note "Calico runs IPIP in Always mode, so every pod-to-pod packet between nodes is"
-note "encapsulated with that outer address — the tenant VLAN carries the pod network,"
-note "whatever addresses the pods use inside it."
+note "10.210.0.99 is deliberately nothing — no host answers there. This is a routing"
+note "table lookup, not a reachability test: the question is which way this node WOULD"
+note "send a packet to a peer in the tenant subnet, not whether anyone is listening."
+note "A successful ping would have proved reachability while proving nothing about path."
+echo
+good "dev enp2s0.310, src 10.210.0.50 — it leaves on the tagged VLAN, from the tenant"
+good "address. That is the routing table's own answer, not our configuration read back."
+echo
+note "tunl0 is Calico's IPIP device, and it holds a POD address, not a tenant one. Pods"
+note "live in the Calico pool; every pod-to-pod packet between nodes is encapsulated and"
+note "the outer packet is sourced from the node IP — so it leaves on enp2s0.310 too. The"
+note "tenant VLAN carries the pod network whatever addresses the pods use inside it."
+note "The pool above reads ipipMode=Always, not CrossSubnet: there is no same-subnet case"
+note "where pod traffic skips the tunnel and takes a different path."
 echo
 note "Which is why a second tenant could run the identical pod CIDR on the same leaf"
 note "and still not reach this one. The separation is the bridge domain, not the addressing."
+echo
+bad "Stated precisely: this shows egress, not isolation. It proves packets LEAVE on the"
+bad "tenant VLAN. It does not prove another tenant cannot receive them — that needs the"
+bad "forwarding plane, and this fabric simulates it. Same boundary as the last section."
 pause || return
 
 arc "WHERE WE ARE GOING"
