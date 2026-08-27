@@ -19,13 +19,13 @@ Five things, in descending order of how much they block us:
    single gap between "the integration works" and "isolation is proven".
 2. **Confirm or correct §7** — a handful of places where the 26.4 documentation and the live 26.4.3
    API disagree, and two behaviours we rely on that we would rather have confirmed than inferred.
-3. **A supported way to read LLDP neighbour state** (§07.4). You told us the `TopoLink.remote.node`
+3. **A supported way to read LLDP neighbour state** (§7.4). You told us the `TopoLink.remote.node`
    lookup was the wrong approach and we agree — we are replacing it with the leaf port supplied
    directly, so we read nothing from your topology intent. LLDP is where we would rather end up, and
    we could not find a query API for it.
-4. **Whether tenant isolation should be microsegmentation** (§07.5) — we build a bridge domain per
-   tenant; you have `GroupTag` / `MicroSegmentationPolicy`. We think they are complementary. If you
-   think one replaces the other, that changes the guarantee and we want it settled early.
+4. **Confirm a bridge domain per tenant is the right shape** (§7.5). Tenants get whole servers or
+   racks, so we believe we do not need `MicroSegmentationPolicy` for this model — but you built it,
+   and we would rather hear that from you than assume it.
 5. **Guidance on multi-rail and scale** — §8.
 
 We are not asking for code changes. Everything below runs against stock EDA.
@@ -148,7 +148,7 @@ side.
 
 **This is what we built, and we are replacing it.** It was an inference about intent rather than a
 contract, and your feedback — plus your own schema, which says an edge link should specify the local
-side only — says it was the wrong one. §07.4 has the change we are making and the LLDP question we
+side only — says it was the wrong one. §7.4 has the change we are making and the LLDP question we
 would rather solve it with.
 
 ### 4.4 Fail-closed, deliberately
@@ -159,7 +159,9 @@ to a healthy one.** Nothing errors. So:
 - A host whose fabric identity cannot be resolved fails the **entire** pool request, with **no fabric
   write at all**. Attaching the resolvable subset would leave a pool partly isolated while reporting
   success.
-- Every rail of a multi-rail host must bind. One missed rail is a real data-plane leak.
+- Every rail of a multi-rail host must bind **on the fabric**. One missed rail is a real
+  data-plane leak. Note this is the switch-port side only — see §5.1 for the division of
+  labour on the host, which is deliberately not ours.
 - A pool is `Attached` only once **every** binding reports operational *on the fabric*. EDA accepts a
   `BridgeInterface` long before the transaction programming it commits, so an API success is not
   evidence of anything — we read back `numSubinterfaces` on the bridge domain instead.
@@ -201,6 +203,43 @@ never re-read, so they must be present before the host registers; and the agent 
 control-plane VIP falls outside the tenant CIDR (`invalid vip ... is not in the CIDR 10.210.0.50/24`),
 which is a useful independent signal that it really parsed the tags.
 
+### 5.1 What we configure, and what we deliberately do not
+
+Worth stating precisely, because "full network isolation" can mean several different things and we
+only claim one of them.
+
+The deployment model is **whole servers, usually whole racks, per customer** — no sharing of host
+hardware between tenants. Given that, isolating customer A's cluster from customer B's needs exactly
+one thing: **EVPN on the fabric, so the traffic never meets.** Everything else follows from it, and
+the useful consequence is that every customer can reuse the same east/west addressing, because each
+sits in its own routing VRF and cannot see the others. That is the property demonstrated in §3.3 —
+two tenants at the identical gateway, separated by EVPN, not by address planning.
+
+| Interface | Who configures it | In this integration |
+|---|---|---|
+| **Fabric ports** (all of them, including rails) | EDA, from our intent | **Ours.** One `BridgeInterface` per port, in the tenant's bridge domain |
+| **Node / CNI interface** | the Palette edge agent, from isolation tags | **Ours.** §5 — the VLAN sub-interface the node and CNI come up on |
+| **East/west rails, host side** | NV-IPAM + Multus, per workload | **Not ours, by design.** Node-prep leaves rail NICs without addresses; Kubernetes assigns them inside the container |
+| **Pod network** | the CNI, within one cluster | **Out of scope.** A cluster belongs to one tenant, so there is no pod-level multi-tenancy to solve |
+| **Management / out-of-band** | site infrastructure | **Unsolved at scale** — see below |
+
+So the honest one-line scope: **we put the right switch ports in the right tenant's VRF, and we bring
+up the node interface on the matching VLAN.** We do not configure rails on the host, and we are not
+trying to.
+
+**The bootstrap dependency, stated plainly.** Configuring a host's primary interface from a
+controller the host reaches *over that interface* is circular. We avoid it here by carrying the
+isolation tags in cloud-init, so the host knows its VLAN and address before it talks to anything —
+the same shape as storing per-server addressing in a provisioning database and having it be correct
+at deploy time. What we have **not** solved is doing that at fleet scale without a PXE or
+out-of-band provisioning path underneath. That is a real gap, it is not an EDA gap, and it is not
+one this demo closes.
+
+**Why EDA and not the existing provider.** Multi-tenant EVPN on switches is not new — the providers
+already integrated do it. The constraint is vendor coverage: today's integration is limited to one
+switch vendor's hardware. EDA is what makes the same guarantee available on SR Linux, which is the
+entire reason this work exists.
+
 ---
 
 ## 6. What is proven, and what is not
@@ -214,6 +253,7 @@ which is a useful independent signal that it really parsed the tags.
 | Kubernetes runs on the isolated address | **Proven** |
 | **Traffic cannot cross between tenants** | **NOT proven** — needs `SIMULATE=false` + licence |
 | Multi-rail hosts, pool scaling on real hardware | **NOT proven** — needs hardware |
+| Fleet-scale bootstrap without PXE / out-of-band provisioning | **NOT proven** — see §5.1 |
 
 We are explicit about the last two because the first five are stronger if we are not overstating.
 
@@ -270,22 +310,22 @@ neighbour field on `interfacestate`, and Digital Twin nodes will not peer LLDP w
 version we want, and the port-on-the-request above becomes the fallback for hosts that cannot run
 LLDP.
 
-**7.5 Microsegmentation — are we solving this the way you expect?**
+**7.5 Microsegmentation — do we need it at all?**
 
-You have a first-class segmentation model we are not using: `GroupTag`, `AssociationPolicy` (with
+You have a first-class segmentation model we do not use: `GroupTag`, `AssociationPolicy` (with
 `bridgeInterfaceSelectors` / `vlanSelectors`) and `MicroSegmentationPolicy` in
 `microsegmentation.eda.nokia.com/v1alpha1`.
 
-We build a bridge domain per tenant, which gives **hard separation with overlapping address space** —
-tenant A and tenant B both at `10.200.0.1/24`, unable to address each other at all. As we read it,
-`MicroSegmentationPolicy` applies policy entries *within* network instances, which is a different and
-softer property: reachability governed by rules rather than by having no path.
+Our read is that we do not need it for the guarantee in §5.1, and we want to check that with you
+rather than assume it. Tenants get whole servers or whole racks, so there is no intra-tenant boundary
+to police; a bridge domain per tenant already means the traffic never meets, and
+`MicroSegmentationPolicy` governs reachability *within* a network instance — a different and softer
+property than having no path at all.
 
-We think these are complementary — separation by construction, plus policy inside a tenant where it
-is wanted. **If your expectation is that tenant isolation should be expressed as microsegmentation
-rather than as separate bridge domains, tell us now**, because that is a materially weaker guarantee
-than the one we have been describing to our own customers, and we would rather resolve it before it
-is built than after.
+**Two things we would like confirmed.** First, that separate bridge domains per tenant is the shape
+you would expect for this deployment model, rather than one shared instance with policy between
+group tags. Second, whether there is anything in your roadmap that would make the policy model the
+preferred route later — if so we would rather know before the provider ships than after.
 
 ---
 
@@ -309,10 +349,14 @@ Status is persisted before fabric writes ("record before write"), so a crash bet
 reservation we can reconcile from, not an orphan we have forgotten about.
 
 **"Multi-rail GPU hosts?"**
-Modelled — every rail must bind or the request fails — but **not yet exercised on hardware**. This is
-where we would most value your guidance: a DGX-class host presents several fabric-facing NICs, and we
-want to be sure our one-BridgeInterface-per-port model matches how you expect those to be cabled and
-bonded.
+On the fabric: modelled — every rail must bind or the request fails — but **not yet exercised on
+hardware**. An HGX-class host presents eight rails, and we want to be sure one-`BridgeInterface`-
+per-port matches how you expect those cabled and bonded.
+
+On the host: **not our job, by design.** Our own node-prep leaves east/west NICs without addresses
+and moves that into Kubernetes desired state via NV-IPAM and Multus, so rail addressing is assigned
+per-workload inside the cluster. The fabric still has to put those rail ports in the right tenant's
+VRF; nothing configures them on the host. See §5.1.
 
 **"Does this scale to a real pod?"**
 Unknown at fabric scale. Our per-pool work is one `TopoLink` list plus one `BridgeInterface` per port;
