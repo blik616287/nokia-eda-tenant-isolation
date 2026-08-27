@@ -62,7 +62,20 @@ wrong.
 
 - A reachable **Nokia EDA** fabric. Developed against EDA 26.4.3 (Digital Twin) with SR Linux 26.3.1
   — two leaves and a spine.
-- A **Palette** instance, a project, an edge registration token, and an edge-native cluster profile.
+- A **Palette** instance, a project, an edge registration token, and an edge-native cluster profile
+  with exactly three packs:
+
+  | Layer | Pack | Version |
+  |---|---|---|
+  | os | `edge-native-byoi` | 2.1.0 |
+  | k8s | `edge-k3s` | 1.35.3 |
+  | cni | `cni-calico` | 3.32.0 |
+
+  Nothing else. Addons are not just unnecessary here, they actively fail: a single-node edge cluster's
+  only node is the control plane and carries `node-role.kubernetes.io/control-plane:NoSchedule`, so
+  any pack whose chart has no toleration for it sits `Pending` forever. Removing the taint by hand
+  does not help — the stylus operator re-applies it on a ~2-minute reconcile. Either give the addon a
+  toleration or leave it out.
 - **libvirt/KVM** locally. The edge host is a local VM with two NICs: management, plus the
   fabric-facing NIC the isolation tags name.
 - The **edge-agent build**, fetched by `make agent`. It is SpectroCloud proprietary and is *not*
@@ -80,6 +93,12 @@ easy to get wrong and both fail in ways worth knowing:
   `invalid vip … is not in the CIDR …`. That refusal is the isolation contract being enforced, and
   it is also a useful signal that the tags were genuinely parsed rather than merely accepted.
 - **`EDA_FABRIC_NODE` must match the `remote.node`** on the edge `TopoLink` for your host.
+
+The k3s pack ships hardened API-server and kubelet flags that depend on two files existing on the
+host *before* k3s starts — `/etc/kubernetes/audit-policy.yaml`, and the sysctls that
+`protect-kernel-defaults=true` refuses to start without. The pack does not create either. `make host`
+writes both from cloud-init; if you build the host another way, create them yourself, because k3s
+fails in a way that looks like a cluster still coming up.
 
 ## What each part does
 

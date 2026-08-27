@@ -102,9 +102,31 @@ ssh_pwauth: true
 chpasswd: {expire: false}
 package_update: true
 packages: [bash, jq, zstd, rsync, systemd-timesyncd, conntrack, iptables, rsyslog, vlan]
+write_files:
+  # The k3s pack hardens the API server with audit logging and asks the kubelet
+  # to enforce protect-kernel-defaults. Both are host prerequisites, and neither
+  # is created by the pack: without them k3s starts, fails, and leaves a cluster
+  # that looks like it is still coming up. Cost four wrong diagnoses once.
+  - path: /etc/kubernetes/audit-policy.yaml
+    permissions: "0644"
+    content: |
+      apiVersion: audit.k8s.io/v1
+      kind: Policy
+      rules:
+        - level: Metadata
+  # protect-kernel-defaults=true makes the kubelet refuse to start unless these
+  # already hold. It will not set them itself.
+  - path: /etc/sysctl.d/90-kubelet.conf
+    permissions: "0644"
+    content: |
+      kernel.panic = 10
+      kernel.panic_on_oops = 1
+      vm.overcommit_memory = 1
+      vm.panic_on_oom = 0
 runcmd:
   - systemctl enable --now systemd-timesyncd
   - systemctl enable --now systemd-networkd
+  - sysctl --system
 EOF
 cloud-localds seed.iso user-data meta-data || die "cloud-localds"
 
