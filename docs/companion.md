@@ -11,7 +11,7 @@ any knowledge of Palette.
 
 ## 1. The ask, up front
 
-Four things, in descending order of how much they block us:
+Five things, in descending order of how much they block us:
 
 1. **Entitlement to run the fabric with `SIMULATE=false`.** Everything we have proven is control
    plane and host configuration. We deliberately do **not** claim traffic cannot cross between
@@ -19,10 +19,14 @@ Four things, in descending order of how much they block us:
    single gap between "the integration works" and "isolation is proven".
 2. **Confirm or correct §7** — a handful of places where the 26.4 documentation and the live 26.4.3
    API disagree, and two behaviours we rely on that we would rather have confirmed than inferred.
-3. **Tell us whether §4.3 is the intended pattern.** We resolve "which leaf port is this server on"
-   by reverse-indexing Day-0 edge `TopoLink`s. It works, but it is an inference about intent, and if
-   EDA has a supported server-keyed mechanism we would rather use it.
-4. **Guidance on multi-rail and scale** — §8.
+3. **A supported way to read LLDP neighbour state** (§07.4). You told us the `TopoLink.remote.node`
+   lookup was the wrong approach and we agree — we are replacing it with the leaf port supplied
+   directly, so we read nothing from your topology intent. LLDP is where we would rather end up, and
+   we could not find a query API for it.
+4. **Whether tenant isolation should be microsegmentation** (§07.5) — we build a bridge domain per
+   tenant; you have `GroupTag` / `MicroSegmentationPolicy`. We think they are complementary. If you
+   think one replaces the other, that changes the guarantee and we want it settled early.
+5. **Guidance on multi-rail and scale** — §8.
 
 We are not asking for code changes. Everything below runs against stock EDA.
 
@@ -142,9 +146,10 @@ Verified on the live fabric: an edge `TopoLink` accepts a `remote.node` naming a
 manage, retains `type: edge`, and stays operationally up. No `TopoNode` is required for the remote
 side.
 
-**This is an inference about intent, not a contract.** If there is a supported mechanism we should be
-using instead, we would rather use it. If there is not, we would like to know that the above is a
-reasonable reading and unlikely to change.
+**This is what we built, and we are replacing it.** It was an inference about intent rather than a
+contract, and your feedback — plus your own schema, which says an edge link should specify the local
+side only — says it was the wrong one. §07.4 has the change we are making and the LLDP question we
+would rather solve it with.
 
 ### 4.4 Fail-closed, deliberately
 
@@ -238,7 +243,49 @@ name that clashes. Is namespacing subnet names per-VirtualNetwork intended, or s
 **7.3 Orphaned `BridgeInterface` poisons the whole transaction queue** (§3.5). Is failing the entire
 batch on one dangling dependency the intended behaviour, or should the offending intent be isolated?
 
-**7.4 Edge `TopoLink` with an unmanaged `remote.node`** (§4.3) — supported pattern, or coincidence?
+**7.4 Edge `TopoLink` with an unmanaged `remote.node`** (§4.3) — **you told us no, and we agree.**
+We are changing it; §4.3 above describes what we built, this is what we are replacing it with.
+
+Your schema makes the case better than the feedback did:
+
+> `kubectl explain topolink.spec` — *"Creating a link with only A specified will create an edge interface."*
+
+For an edge link the model is to specify the local side and omit `remote`. We populate it anyway,
+purely as a lookup key, and the empty `remote.interfaceResource` gives it away — there is no fabric
+object on that side, because a GPU host is not a `TopoNode`. That the API tolerates it is not an
+argument that it is intended, and on real hardware nobody would have populated that field for us.
+
+**What we are changing it to.** The port attachment takes the leaf interface directly —
+`leaf1-ethernet-1-9` — and passes it to `BridgeInterface.spec.interface`, which is what you wanted
+from us in the first place. The server↔port cabling record moves into PaletteAI's compute inventory,
+where a machine's cabling record belongs and where you do not have to maintain it. **We then read
+nothing from your topology intent at all**, which is the boundary we said we were respecting and
+were not quite.
+
+**Where we would rather end up: LLDP.** The fabric-native answer to "which port is this host on" is
+neighbour discovery, with no mapping maintained on either side. We could not build on it here:
+`LldpOverlay` is a UI overlay over the physical topology rather than a query API, we found no LLDP
+neighbour field on `interfacestate`, and Digital Twin nodes will not peer LLDP with a real host.
+**Is there a supported way to read LLDP neighbour state programmatically?** If so, that is the
+version we want, and the port-on-the-request above becomes the fallback for hosts that cannot run
+LLDP.
+
+**7.5 Microsegmentation — are we solving this the way you expect?**
+
+You have a first-class segmentation model we are not using: `GroupTag`, `AssociationPolicy` (with
+`bridgeInterfaceSelectors` / `vlanSelectors`) and `MicroSegmentationPolicy` in
+`microsegmentation.eda.nokia.com/v1alpha1`.
+
+We build a bridge domain per tenant, which gives **hard separation with overlapping address space** —
+tenant A and tenant B both at `10.200.0.1/24`, unable to address each other at all. As we read it,
+`MicroSegmentationPolicy` applies policy entries *within* network instances, which is a different and
+softer property: reachability governed by rules rather than by having no path.
+
+We think these are complementary — separation by construction, plus policy inside a tenant where it
+is wanted. **If your expectation is that tenant isolation should be expressed as microsegmentation
+rather than as separate bridge domains, tell us now**, because that is a materially weaker guarantee
+than the one we have been describing to our own customers, and we would rather resolve it before it
+is built than after.
 
 ---
 
