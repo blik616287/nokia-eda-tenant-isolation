@@ -5,6 +5,7 @@
 #   make host     build the edge host from nothing (~4½ min)
 #   make demo     run the walkthrough against the live fabric (Nokia cut)
 #   make demo-tyler  same evidence, led by the ComputePool path (Palette cut)
+#   make demo-palette  the Palette-side flow: hosts, tags, VLAN, cluster, pods
 #   make verify   prove the last demo run was live, not cached
 #   make clean    tear down demo fabric state
 #   make destroy  clean, plus remove the VM and its Palette records
@@ -21,10 +22,10 @@ EDGE_HOST ?= lab-gpu-01
 EDGE_IP ?= $(shell cat $(ROOT)/.work/edge-ip 2>/dev/null)
 
 .DEFAULT_GOAL := help
-.PHONY: help deps agent host demo demo-tyler verify clean destroy env
+.PHONY: help deps agent host demo demo-tyler demo-palette verify clean destroy env
 
 help:
-	@sed -n 's/^#   //p' $(MAKEFILE_LIST) | head -9
+	@sed -n 's/^#   //p' $(MAKEFILE_LIST) | head -10
 	@echo ""
 	@echo "Start here:  cp .env.example .env  &&  \$$EDITOR .env  &&  make deps"
 
@@ -84,6 +85,13 @@ demo-tyler:
 	@test -n "$(EDGE_IP)" || { echo "EDGE_IP unset — run 'make host', or export EDGE_IP=<addr>"; exit 1; }
 	@EDGE_IP=$(EDGE_IP) FRISKET=$(FRISKET) SECTIONS="$(DEMO_TYLER_SECTIONS)" \
 	  bash $(ROOT)/scripts/demo-record.sh
+
+# Tyler's running order for a mixed Palette/Nokia room: start from the platform's
+# own edge-host list and work outward to the fabric, rather than starting at the
+# fabric. Same environment, different story.
+demo-palette:
+	@test -n "$(EDGE_IP)" || { echo "EDGE_IP unset — run 'make host', or export EDGE_IP=<addr>"; exit 1; }
+	@EDGE_IP=$(EDGE_IP) FRISKET=$(FRISKET) bash $(ROOT)/scripts/demo-palette.sh
 
 # Liveness proof: a cached Go test replays byte-for-byte, so output alone proves
 # nothing. EDA transactions do not lie — a live run moves this counter.

@@ -202,6 +202,12 @@ never re-read, so they must be present before the host registers; and the agent 
 control-plane VIP falls outside the tenant CIDR (`invalid vip ... is not in the CIDR 10.210.0.50/24`),
 which is a useful independent signal that it really parsed the tags.
 
+**Tags are the current mechanism, not the intended one.** The direction on our side is to carry this
+on the edge-host record through the platform API rather than as labels. Nothing in the fabric half
+changes if that happens — the provider still resolves a pool to leaf ports and writes bridge
+interfaces — but the host half would be configured from a record rather than from tags. Worth knowing
+if you are reading the tag names as a long-term contract; they are not one.
+
 ### 5.1 What we configure, and what we deliberately do not
 
 Worth stating precisely, because "full network isolation" can mean several different things and we
@@ -245,7 +251,8 @@ isolation tags in cloud-init, so the host knows its VLAN and address before it t
 the same shape as storing per-server addressing in a provisioning database and having it be correct
 at deploy time. What we have **not** solved is doing that at fleet scale without a PXE or
 out-of-band provisioning path underneath. That is a real gap, it is not an EDA gap, and it is not
-one this demo closes.
+one this demo closes. DPU-based addressing would sidestep it — see §8 for why we are not
+counting on that.
 
 **Why EDA and not the existing provider.** Multi-tenant EVPN on switches is not new — the providers
 already integrated do it. The constraint is vendor coverage: today's integration is limited to one
@@ -409,6 +416,26 @@ and moves that into Kubernetes desired state via NV-IPAM and Multus, so rail add
 per-workload inside the cluster. The fabric still has to put those rail ports in the right tenant's
 VRF; nothing configures them on the host. See §5.1.
 
+**"What about DPUs and smart NICs?"**
+You raised BlueField and ConnectX in the sync, so: multi-tenancy via DPUs is technically possible
+through NVIDIA HBN, deployed as a DPF Zero Trust solution — a dedicated Kubernetes cluster running
+DPF that controls the DPUs over their out-of-band management ports. Fabric providers can also drive
+that natively, generally with better tooling around it.
+
+It has one property we would genuinely value: **address assignment happens over DHCP**, which
+sidesteps the bootstrap dependency in §5.1 — no need to hand a host its address before it can reach
+anything. That is the cleanest answer to the scale problem we have seen.
+
+We are not designing around it, for a reason that is about deployments rather than technology. Most
+customers with this hardware do not use the DPU functionality and are not confident in it, and many
+sites are not cabled for it at all — out-of-band switch port capacity is routinely under-provisioned
+relative to the number of DPU management ports, so the ports physically cannot be wired up. Outside
+a handful of specialist providers it is rarely deployed in practice.
+
+So we treat it as an **opportunistic optimisation, not a prerequisite**: where a customer runs DPUs,
+the fabric side of this integration is unchanged and the host side gets easier. Where they do not —
+which is most places — nothing above depends on it.
+
 **"Does this scale to a real pod?"**
 Unknown at fabric scale. Our per-pool work is one `TopoLink` list plus one `BridgeInterface` per port;
 we batched the topology read specifically to avoid an N-lists-per-host pattern. We have not tested
@@ -442,6 +469,13 @@ fails the *entire* pool request with no fabric write, so a partial or silently-e
 safer than a guessed one — please prefer an error to an empty list. Second, we would poll this on
 reconcile rather than cache it, so a mapping that changes when a machine is re-cabled should be
 reflected without us being told.
+
+**A cheaper variant, if you return the VLAN.** Colleagues who have run LLDP in production note that
+`lldpctl` on a host reports the VLAN seen on each interface. If the API returns a tenant's VLAN ID,
+the host can find its own fabric-facing NIC by matching it, and neither side needs a hostname-to-port
+table at all. It only holds where the switch advertises VLAN in LLDP and the host runs an LLDP
+client, so it complements the mapping rather than replacing it — but if the VLAN alone is enough,
+this contract gets much smaller.
 
 **Until it exists**, the leaf port is supplied on the attachment request from our own inventory
 (§7.4). That keeps us unblocked and is the static-inventory case in your own framing; the API
