@@ -14,14 +14,15 @@
 #   4. The host side — a VLAN raised from Palette tags, and k8s on that address
 #   5. Both halves at once
 #   6. How Palette drives this — the ComputePool path, and what is missing
-#   7. What is proven, and what is not
-#   7. Where this stands: stylus, the PRs, and what is open
-#   8. Teardown — verified return to the baseline
+#   7. Who writes the host's configuration at fleet scale — the bootstrap path
+#   8. What is proven, and what is not
+#   9. Where this stands: stylus, the PRs, and what is open
+#  10. Teardown — verified return to the baseline
 #
 # CONFIG (export before running):
 #   EDA_KUBECONFIG   kubeconfig for the EDA cluster   (enables the live §2)
 #   EDA_FABRIC_NODE  fabric node name                 (default: lab-gpu-01)
-#   EDGE_IP          Palette edge host IP             (§4 and §5 host side)
+#   EDGE_IP          Palette edge host IP             (§4, §5, §7 host side)
 #   FRISKET          path to the frisket module
 #   PALETTE_API_KEY  enables the live tag read in §4
 #   AUTO             0 (default) pause for Enter; 1 auto-advance
@@ -30,8 +31,8 @@
 # NOTE ON CORRECTNESS (load-bearing — do not "simplify"):
 #   * every `go test` runs with -count=1. Go replays cached results byte-for-byte,
 #     including t.Logf output, so a cached PASS is indistinguishable from a live
-#     run. The EDA transaction delta printed in §6 is the real proof of liveness.
-#   * §0 surveys and cleans before anything is claimed; §8 verifies the return to
+#     run. The EDA transaction delta printed in §8 is the real proof of liveness.
+#   * §0 surveys and cleans before anything is claimed; §10 verifies the return to
 #     baseline. lab-gpu-01 has exactly ONE cabled port, so without that the second
 #     run fails on port contention.
 #   * fabric objects are deleted BridgeInterface -> VirtualNetwork -> BridgeDomain.
@@ -47,6 +48,7 @@ ROOT_DIR="$(cd "$HERE/.." && pwd)"
 : "${EDGE_IP:=192.168.122.3}"
 : "${EDA_FABRIC_NODE:=lab-gpu-01}"
 : "${DEMO_HOST_UID:=lab-gpu-01}"
+: "${DEMO_MAC:=52:54:00:26:9a:5e}"
 : "${AUTO:=0}"; : "${TYPE:=1}"
 : "${PALETTE_API_KEY:=}"
 
@@ -79,7 +81,26 @@ good(){ printf '%s     ✓ %s%s\n' "$GREEN" "$1" "$R"; }
 bad(){  printf '%s     ✗ %s%s\n' "$RED" "$1" "$R"; }
 link(){ printf '    %s▸ %s%s\n      %s%s%s\n' "$B" "$1" "$R" "$BLUE" "$2" "$R"; }
 arc(){  printf '\n%s  ── %s ──%s\n' "$B$TEAL" "$1" "$R"; }
-pause(){ if [ "$AUTO" = 1 ]; then sleep 4; else printf '\n%s     ⏎%s' "$DIM" "$R"; read -r _; fi; }
+# One page per section. pause() is the page break: it returns 0 to carry on
+# within a section, and non-zero for anything that leaves it, so every call site
+# is `pause || return` and the driver below acts on $NAV.
+NAV=next
+pause(){
+  if [ "$AUTO" = 1 ]; then sleep 4; NAV=next; return 0; fi
+  local k
+  printf '\n%s     [enter] next   [p] back   [r] replay   [g N] go to N   [q] quit%s  ' "$DIM" "$R"
+  read -r k
+  case "$k" in
+    p|P|b|B)      NAV=prev;   return 1 ;;
+    r|R)          NAV=replay; return 1 ;;
+    q|Q)          NAV=quit;   return 1 ;;
+    g\ *|G\ *)    NAV="goto:${k#* }"; return 1 ;;
+    [0-9]*)       NAV="goto:$k"; return 1 ;;
+    *)            NAV=next;   return 0 ;;
+  esac
+}
+page_clear(){ [ "$AUTO" = 1 ] && return 0; printf '\033[H\033[2J'; }
+page_mark(){ printf '%s     %s  ·  page %s of %s%s\n' "$DIM" "$1" "$2" "$3" "$R"; }
 
 run(){ local cmd="$1"; printf '\n%s  $ %s' "$B" "$R"
   if [ "$TYPE" = 1 ]; then local i; for ((i=0;i<${#cmd};i++)); do printf '%s' "${cmd:$i:1}"; sleep 0.012; done; printf '\n'
@@ -235,7 +256,7 @@ if sshpass -p demo ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/nu
 else
   note "edge host $EDGE_IP has no enp2s0.310 — sections 4 and 5 will be limited"
 fi
-pause
+pause || return
 }
 
 sec_1(){
@@ -261,7 +282,7 @@ echo
 link "EDA documentation" "$EDA_DOCS"
 link "SR Linux documentation" "$SRL_DOCS"
 link "RFC 7432 — BGP MPLS-Based Ethernet VPN" "$RFC7432"
-pause
+pause || return
 }
 
 sec_2(){
@@ -289,7 +310,7 @@ else
     bad "This step did not complete. The output above is not a valid result."
     printf '%s\n' "$out" | grep -E "_test\.go:[0-9]+:|--- FAIL" | head -5 | sed 's/^/    /'
     note "Usually leftover fabric state; clear bridgeinterface -> virtualnetwork -> bridgedomain."
-    pause
+    pause || return
   fi
 fi
 echo
@@ -317,7 +338,7 @@ note "how the fabric confirms it, is unchanged either way."
 echo
 link "Integration companion — §4.3, host-to-port resolution" "$COMPANION"
 link "RFC 8365 — Network Virtualization Overlay Solution Using EVPN" "$RFC8365"
-pause
+pause || return
 }
 
 sec_3(){
@@ -338,7 +359,7 @@ note "A multi-rail host must have every rail bound — one missed rail is a data
 note "Each of these behaviours was verified by removing it and confirming the suite fails."
 echo
 link "RFC-0014 — the pluggable network-isolation provider slot" "$RFC0014"
-pause
+pause || return
 }
 
 sec_4(){
@@ -391,7 +412,7 @@ echo
 link "Palette — project overview" "$PALETTE/projects/$PROJECT/overview"
 link "stylus #6354 — resolve the fabric NIC, build the VLAN sub-interface" "https://github.com/spectrocloud/stylus/pull/6354"
 link "stylus #6394 — aviz-* renamed net-iso-* so a second provider shares the path" "https://github.com/spectrocloud/stylus/pull/6394"
-pause
+pause || return
 }
 
 sec_5(){
@@ -429,7 +450,7 @@ note "same host's tags into a local interface."
 echo
 link "Integration companion — §2, the two halves" "$COMPANION"
 link "SR Linux learn — EVPN in practice" "$SRL_LEARN"
-pause
+pause || return
 }
 
 sec_6(){
@@ -469,12 +490,66 @@ note "integration into something a user can reach from the product."
 echo
 link "#8944 — the enum, CEL fix and EDANetworkIsolation type" "https://github.com/spectrocloud/mural/pull/8944"
 link "#8946 — the attachment reconciler" "https://github.com/spectrocloud/mural/pull/8946"
-pause
+pause || return
 }
 
 sec_7(){
 # ---------------------------------------------------------------------------
-banner "7 · What is proven, and what is not"
+banner "7 · Who writes the host's configuration, at fleet scale"
+ctx "Everything so far depended on the isolation values already being in /var/lib/spectro/userdata. On this host that file was written by hand, over SSH, before the agent first registered — honest for one machine, and exactly what a fleet breaks. Configuring a host's primary interface from a controller it reaches over that interface is circular. This is how the circle is broken."
+lede "Everything a booting host presents about itself — one value:"
+run "echo $DEMO_MAC"
+note "In production this is not even a lookup. The leaf's DHCP relay inserts Option 82"
+note "circuit-id — the port the request arrived on — so the fabric names the port and"
+note "nothing has to resolve the host at all. The Digital Twin has no forwarding plane,"
+note "so there is no relay here; we key on MAC from inventory. The derivation is the same."
+echo
+lede "What it is served, derived live from the fabric:"
+run_masked "./scripts/provision-endpoint.py --once $DEMO_MAC --explain" \
+           "$HERE/provision-endpoint.py --once $DEMO_MAC --explain"
+note "Nothing per-host is authored. Two of those lines are ours to change and we have"
+note "said so: the cabling read becomes the leaf port on the host record (RFC-0021 §4e),"
+note "and pool-to-tenant is what the ComputePool watcher will own (RFC-0021 item 13)."
+echo
+lede "Against the values actually on the running host:"
+a=$("$HERE/provision-endpoint.py" --once "$DEMO_MAC" 2>/dev/null | sed -n '/net-iso/p')
+b=$(sshpass -p "${VM_PASSWORD:-demo}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      -o LogLevel=ERROR -o ConnectTimeout=8 "${VM_USER:-demo}@$EDGE_IP" \
+      'sudo sed -n "/net-iso/p" /var/lib/spectro/userdata' 2>/dev/null)
+if [ -n "$a" ] && [ "$a" = "$b" ]; then
+  printf '%s\n' "$a" | sed 's/^ *//;s/^/      /'
+  good "Identical. Derived from the fabric, not copied from the host."
+elif [ -z "$a" ]; then
+  note "The tenant is not on the fabric — section 5 creates it, and section 10 removes it."
+else
+  bad "The two do not match."
+fi
+echo
+lede "A service returning the right answer could be reciting it. Ask for a different tenant:"
+run_masked "./scripts/provision-endpoint.py --once $DEMO_MAC --tenant tenant-a" \
+           "$HERE/provision-endpoint.py --once $DEMO_MAC --tenant tenant-a 2>&1 | tail -1"
+good "Fail closed. tenant-a's subnet is read live from its IRB, the reserved address is"
+good "not inside it, and no configuration is served at all."
+echo
+good "CLOSED — per-host configuration is no longer authored anywhere. Every machine boots"
+good "the same image and is told what it is."
+bad "NOT CLOSED — the transport. A production host gets this over PXE/iPXE or an"
+bad "out-of-band installer; this is plain HTTP on the management network."
+bad "NOT CLOSED — IPAM. The tenant subnet is the fabric's; which address inside it belongs"
+bad "to a host is a decision nothing owns yet, so it is carried as a reservation."
+echo
+note "DPU addressing arrives over DHCP and removes this circularity rather than routing"
+note "around it. It is the better answer and it is yours — companion §8 for why we treat"
+note "it as an optimisation rather than a prerequisite."
+echo
+link "Integration companion — §5.1, the bootstrap dependency" "$COMPANION"
+link "The same ground in full — make demo-bootstrap" "$ROOT_DIR/scripts/demo-bootstrap.sh"
+pause || return
+}
+
+sec_8(){
+# ---------------------------------------------------------------------------
+banner "8 · What is proven, and what is not"
 TX1=$(txcount)
 ctx "Go replays cached test output byte-for-byte, so on-screen output alone cannot prove a run was live. The EDA transaction count can."
 lede "Transactions driven through EDA's engine during this session:"
@@ -495,12 +570,12 @@ note "Modelled and tested in the reconciler, but not exercised against a DGX-cla
 note "with several fabric-facing NICs, nor against a fabric with thousands of edge links."
 echo
 link "Integration companion — §6, the full proven / not-proven table" "$COMPANION"
-pause
+pause || return
 }
 
-sec_8(){
+sec_9(){
 # ---------------------------------------------------------------------------
-banner "8 · Where this stands"
+banner "9 · Where this stands"
 ctx "Everything shown runs on code that is either merged or in review. This is the delivery picture, including what is still open and who it sits with."
 
 arc "THE STYLUS SIDE — merged"
@@ -550,12 +625,12 @@ link "#8944 — hue-apis: EDA provider + CEL fix" "https://github.com/spectroclo
 link "#9124 — hue: policy-step EDA case" "https://github.com/spectrocloud/mural/pull/9124"
 link "#8945 — frisket: EDA client + isolation unit" "https://github.com/spectrocloud/mural/pull/8945"
 link "#8946 — frisket: port attachment reconciler" "https://github.com/spectrocloud/mural/pull/8946"
-pause
+pause || return
 }
 
-sec_9(){
+sec_10(){
 # ---------------------------------------------------------------------------
-banner "9 · Teardown"
+banner "10 · Teardown"
 ctx "This session created real fabric objects. lab-gpu-01 has one cabled port, so leaving an attachment behind would make the next run fail on contention. Teardown is part of the demonstration, not an afterthought."
 if [ "${TEARDOWN:-1}" = 0 ]; then
   note "TEARDOWN=0 — demo state left in place for inspection"
@@ -576,15 +651,35 @@ echo
 link "Integration companion" "$COMPANION"
 link "EDA documentation" "$EDA_DOCS"
 printf '\n%s   Thank you.%s\n\n' "$B$TEAL" "$R"
+pause || return
 }
 
 # ---------------------------------------------------------------------------
 # Default is the full run in numeric order. Override SECTIONS to change the cut;
 # `make demo-tyler` leads with the ComputePool path.
-SECTIONS="${SECTIONS:-0 1 2 3 4 5 6 7 8 9}"
+SECTIONS="${SECTIONS:-0 1 2 3 4 5 6 7 8 9 10}"
 
 title
-for s in $SECTIONS; do
+[ "$AUTO" = 1 ] || { printf '\n%s     [enter] begin%s  ' "$DIM" "$R"; read -r _; }
+
+read -r -a PAGES <<< "$SECTIONS"
+N=${#PAGES[@]}
+i=0
+while [ "$i" -lt "$N" ]; do
+  s="${PAGES[$i]}"
+  page_clear
+  page_mark "section $s" "$((i+1))" "$N"
+  NAV=next
   if declare -F "sec_$s" >/dev/null; then "sec_$s"
   else printf "%s     unknown section: %s%s\n" "$RED" "$s" "$R"; fi
+  case "$NAV" in
+    prev)   [ "$i" -gt 0 ] && i=$((i-1)) ;;
+    replay) : ;;
+    quit)   printf '\n'; break ;;
+    goto:*) t="${NAV#goto:}"; j=0; hit=-1
+            while [ "$j" -lt "$N" ]; do [ "${PAGES[$j]}" = "$t" ] && { hit=$j; break; }; j=$((j+1)); done
+            if [ "$hit" -ge 0 ]; then i=$hit
+            else printf '%s     no section %s in this cut%s\n' "$RED" "$t" "$R"; sleep 1; fi ;;
+    *)      i=$((i+1)) ;;
+  esac
 done

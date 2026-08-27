@@ -76,12 +76,15 @@ demo:
 # The default cut is written for Nokia EDA engineers: it opens on the fabric and
 # what "isolated" means in EVPN terms, then works outward to the host.
 #
+# Every cut is paginated: one page per section, [enter] forward, [p] back,
+# [r] replay, [g N] jump, [q] quit. Set AUTO=1 to advance on a timer instead.
+#
 # This cut answers the Palette-side question instead — "inventory, select hosts,
 # create a compute pool, apply isolation" — so it leads with section 6, the
 # ComputePool path and the piece of it that is not written yet, then shows the
 # sections that back it up. Section 1 (fabric internals) is dropped; every other
 # section runs, and the numbering is unchanged, so cross-references still hold.
-DEMO_TYLER_SECTIONS ?= 0 6 2 4 5 3 7 8 9
+DEMO_TYLER_SECTIONS ?= 0 6 2 4 5 3 7 8 9 10
 demo-tyler:
 	@test -n "$(EDGE_IP)" || { echo "EDGE_IP unset — run 'make host', or export EDGE_IP=<addr>"; exit 1; }
 	@EDGE_IP=$(EDGE_IP) FRISKET=$(FRISKET) SECTIONS="$(DEMO_TYLER_SECTIONS)" \

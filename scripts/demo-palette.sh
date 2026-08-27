@@ -51,7 +51,25 @@ good(){ printf '%s     ✓ %s%s\n' "$GREEN" "$1" "$R"; }
 bad(){  printf '%s     ✗ %s%s\n' "$RED" "$1" "$R"; }
 link(){ printf '    %s▸ %s%s\n      %s%s%s\n' "$B" "$1" "$R" "$BLUE" "$2" "$R"; }
 arc(){  printf '\n%s  ── %s ──%s\n' "$B$TEAL" "$1" "$R"; }
-pause(){ if [ "$AUTO" = 1 ]; then sleep 4; else printf '\n%s     ⏎%s' "$DIM" "$R"; read -r _; fi; }
+NAV=next
+pause(){
+  if [ "$AUTO" = 1 ]; then sleep 4; NAV=next; return 0; fi
+  local k
+  printf '
+%s     [enter] next   [p] back   [r] replay   [g N] go to N   [q] quit%s  ' "$DIM" "$R"
+  read -r k
+  case "$k" in
+    p|P|b|B)      NAV=prev;   return 1 ;;
+    r|R)          NAV=replay; return 1 ;;
+    q|Q)          NAV=quit;   return 1 ;;
+    g\ *|G\ *)    NAV="goto:${k#* }"; return 1 ;;
+    [0-9]*)       NAV="goto:$k"; return 1 ;;
+    *)            NAV=next;   return 0 ;;
+  esac
+}
+page_clear(){ [ "$AUTO" = 1 ] && return 0; printf '[H[2J'; }
+page_mark(){ printf '%s     %s  ·  page %s of %s%s
+' "$DIM" "$1" "$2" "$3" "$R"; }
 run(){ local c="$1"; printf '\n%s  $ %s' "$B" "$R"
   if [ "$TYPE" = 1 ]; then local i; for ((i=0;i<${#c};i++)); do printf '%s' "${c:$i:1}"; sleep 0.012; done; printf '\n'
   else printf '%s\n' "$c"; fi
@@ -80,7 +98,8 @@ note "   $(date -u +%Y-%m-%d)  ·  EDA 26.4.3  ·  SR Linux 26.3.1  ·  edge age
 
 arc "WHAT WE HAVE"
 
-# ---------------------------------------------------------------- 1
+beat_1(){
+# ------------------------------------------------------------------
 banner "1 · The edge hosts, in Palette"
 ctx "Everything starts from the platform's own inventory. These are ordinary registered edge hosts — nothing about them is special to this demo except the tags they carry."
 lede "Hosts registered against this Palette project:"
@@ -98,9 +117,11 @@ else
   note "(PALETTE_API_KEY unset — this is the edge host list view in the Palette UI)"
 fi
 link "The same list in the Palette console" "$PALETTE/projects/$PROJECT/overview"
-pause
+pause || return
+}
 
-# ---------------------------------------------------------------- 2
+beat_2(){
+# ------------------------------------------------------------------
 banner "2 · What these hosts are"
 ctx "Nothing here depends on special hardware. The point is that an ordinary machine running our edge agent is all the host side requires."
 lede "Each host is a VM with two NICs, running the Palette edge agent."
@@ -108,9 +129,11 @@ run "sudo virsh -c \${LIBVIRT_URI:-qemu:///system} list --all | grep -E 'Name|--
 lede "The agent, and the version it is running:"
 run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'systemctl is-active spectro-stylus-agent; sudo journalctl -u spectro-stylus-agent --no-pager --since \"-10 min\" | grep -oE \"version=v[0-9.]+[^ ]*\" | sort -u | tail -1'"
 note "installed from the agent-mode tarball; nothing else was configured by hand"
-pause
+pause || return
+}
 
-# ---------------------------------------------------------------- 3
+beat_3(){
+# ------------------------------------------------------------------
 banner "3 · The tags, and where they came from"
 ctx "The tags are not applied after the fact. They are written into the host's user-data before it ever registers, because the agent snapshots them at registration and never re-reads them."
 lede "The user-data that was placed on the host before first boot:"
@@ -129,9 +152,11 @@ for kk in sorted(k for k in l if k.startswith("net-iso")): print("   ", kk, "=",
     "curl -sk -H \"ApiKey: \$PALETTE_API_KEY\" -H \"ProjectUid: $PROJECT\" '$PALETTE/v1/edgehosts/$DEMO_HOST_UID' | python3 -c '$PY2'"
 fi
 good "Same values, round-tripped: user-data on the host, tags in the platform."
-pause
+pause || return
+}
 
-# ---------------------------------------------------------------- 4
+beat_4(){
+# ------------------------------------------------------------------
 banner "4 · Those tag values are VLANs EDA configured"
 ctx "The tags are not free text. Each one names something that exists on the Nokia fabric — the VLAN, and the tenant bridge domain carrying it."
 lede "The tenants configured on the fabric, with identifiers EDA allocated:"
@@ -156,9 +181,11 @@ note "reported by a DIFFERENT object than the one we wrote. EDA accepts a Bridge
 note "before the transaction that programs the switch has committed, so an API success"
 note "proves only that the intent was recorded — not that the port moved. Readiness is"
 note "gated on the bridge domain's own numSubinterfaces instead."
-pause
+pause || return
+}
 
-# ---------------------------------------------------------------- 5
+beat_5(){
+# ------------------------------------------------------------------
 banner "5 · The designated interface, on the VM"
 ctx "This is the host half. Nobody logged in and configured it; the agent read the tags and built it during cloud-init, before Kubernetes started."
 lede "The interface named by net-iso-interface, carrying the tagged VLAN:"
@@ -167,9 +194,11 @@ run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDG
 echo
 note "enp1s0 is the management path. enp2s0 has no address of its own."
 good "802.1Q VLAN 310 at 10.210.0.50/24 — exactly the tag values from section 3."
-pause
+pause || return
+}
 
-# ---------------------------------------------------------------- 6
+beat_6(){
+# ------------------------------------------------------------------
 banner "6 · The cluster on that host"
 ctx "The isolated interface is not decoration. It is the address Kubernetes itself came up on, which is only possible because it existed before the cluster bootstrapped."
 lede "The edge cluster, as Palette sees it:"
@@ -195,9 +224,11 @@ elif [ -n "$node_ip" ]; then
 else
   bad "the cluster is not up — this section cannot be shown"
 fi
-pause
+pause || return
+}
 
-# ---------------------------------------------------------------- 7
+beat_7(){
+# ------------------------------------------------------------------
 banner "7 · Where the cluster's traffic actually goes"
 ctx "This is the question a network engineer asks, so it is worth being exact. Pod and Service addresses are the cluster's own — they are not tenant addresses, and they are not the isolated subnet. What makes them isolated is the interface every packet leaves on."
 lede "The cluster's address ranges, as they actually are:"
@@ -220,11 +251,13 @@ note "whatever addresses the pods use inside it."
 echo
 note "Which is why a second tenant could run the identical pod CIDR on the same leaf"
 note "and still not reach this one. The separation is the bridge domain, not the addressing."
-pause
+pause || return
 
 arc "WHERE WE ARE GOING"
+}
 
-# ---------------------------------------------------------------- 8
+beat_8(){
+# ------------------------------------------------------------------
 banner "8 · PaletteAI manages the EDA CRs"
 ctx "Today the demo drives the provider's own CRs. The direction is that PaletteAI owns the EDA resources directly, created from what a user declares on a ComputePool."
 lede "The subset we are currently building against:"
@@ -241,9 +274,11 @@ bad "OPEN QUESTION FOR NOKIA — is this the right subset of the EDA API surface
 note "We arrived at it by reading the live 26.4.3 CRDs rather than the documentation,"
 note "after the two disagreed. If there is a resource we should be using and are not,"
 note "or one we are using that you would rather we did not, this is the moment."
-pause
+pause || return
+}
 
-# ---------------------------------------------------------------- 9
+beat_9(){
+# ------------------------------------------------------------------
 banner "9 · PaletteAI generates the edge-agent configuration"
 ctx "The host half is generated, not hand-written. Today one interface is expressible; the direction is all interfaces a host needs."
 lede "What the platform generates today — the tags from section 3, one interface:"
@@ -258,9 +293,11 @@ note "the host side does not: the tag contract carries exactly one interface, an
 note "address is defined as becoming the node IP"
 echo
 note "Extending it is a change in the edge agent's tag contract, not in the EDA provider."
-pause
+pause || return
+}
 
-# --------------------------------------------------------------- 10
+beat_10(){
+# ------------------------------------------------------------------
 banner "10 · Assumptions worth stating"
 ctx "Both of these change the shape of the answer, so they are better said than assumed."
 lede "EDA is deployed and licensed separately."
@@ -279,3 +316,31 @@ note "and a licence — the first item on our ask."
 echo
 link "Integration companion — architecture, findings, and the ask" "$COMPANION"
 printf '\n%s   Thank you.%s\n\n' "$B$TEAL" "$R"
+pause || return
+}
+
+# ---------------------------------------------------------------------------
+# One page per beat. BEATS overrides the running order; every beat is a function
+# so the cursor can move backwards as well as forwards.
+BEATS="${BEATS:-1 2 3 4 5 6 7 8 9 10}"
+read -r -a PAGES <<< "$BEATS"
+N=${#PAGES[@]}
+i=0
+while [ "$i" -lt "$N" ]; do
+  s="${PAGES[$i]}"
+  page_clear
+  page_mark "beat $s" "$((i+1))" "$N"
+  NAV=next
+  if declare -F "beat_$s" >/dev/null; then "beat_$s"
+  else printf "%s     unknown beat: %s%s\n" "$RED" "$s" "$R"; fi
+  case "$NAV" in
+    prev)   [ "$i" -gt 0 ] && i=$((i-1)) ;;
+    replay) : ;;
+    quit)   printf '\n'; break ;;
+    goto:*) t="${NAV#goto:}"; j=0; hit=-1
+            while [ "$j" -lt "$N" ]; do [ "${PAGES[$j]}" = "$t" ] && { hit=$j; break; }; j=$((j+1)); done
+            if [ "$hit" -ge 0 ]; then i=$hit
+            else printf '%s     no beat %s%s\n' "$RED" "$t" "$R"; sleep 1; fi ;;
+    *)      i=$((i+1)) ;;
+  esac
+done

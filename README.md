@@ -32,6 +32,10 @@ make host                 # build the edge host from nothing  (~4½ minutes)
 make demo                 # the walkthrough, against the live fabric
 ```
 
+Each demo is paginated — one section per page. `enter` advances, `p` goes back, `r` replays the
+current page, `g 5` jumps to section 5, `q` quits. `AUTO=1` advances on a timer, `TYPE=0` turns off
+the typewriter.
+
 Tear down with `make clean` (fabric state) or `make destroy` (also removes the VM and its Palette
 records).
 
@@ -81,7 +85,7 @@ easy to get wrong and both fail in ways worth knowing:
 
 | Path | Purpose |
 |---|---|
-| `scripts/demo-record.sh` | The walkthrough. Eight sections, live against the fabric, tears its own state down. |
+| `scripts/demo-record.sh` | The walkthrough. Eleven pages, live against the fabric, tears its own state down. |
 | `scripts/demo-bootstrap.sh` | The bootstrap dependency: a host boots knowing only its MAC and is served its isolation values. |
 | `scripts/provision-endpoint.py` | Derives those values live from the fabric. Fails closed when the address does not fit the tenant. |
 | `scripts/build-edge-host.sh` | Edge host from nothing to a live tenant VLAN, ~4½ min, timed per phase. |
