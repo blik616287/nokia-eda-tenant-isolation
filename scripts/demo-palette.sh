@@ -80,11 +80,7 @@ run_masked(){ local s="$1" r="$2"; printf '\n%s  $ %s' "$B" "$R"
   else printf '%s\n' "$s"; fi
   eval "$r" 2>&1 | sed 's/^/    /'; }
 k(){ kubectl --context "$KCTX" -n "$NS" "$@"; }
-S(){ sshpass -p "${VM_PASSWORD:-demo}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-     -o LogLevel=ERROR -o ConnectTimeout=8 "${VM_USER:-demo}@$EDGE_IP" "$@"; }
-KC(){ S "sudo k3s kubectl $*"; }
 
-[ -n "$EDGE_IP" ] || { echo "EDGE_IP unset — export it, or run make host"; exit 1; }
 
 clear
 printf '%s%s\n' "$B$TEAL" '
@@ -100,6 +96,10 @@ note "   $(date -u +%Y-%m-%d)  ·  EDA 26.4.3  ·  SR Linux 26.3.1  ·  edge age
 arc "WHAT WE HAVE"
 
 . "$HERE/beats-palette.sh"
+resolve_edge_ip || true   # the DHCP lease moves on every reboot
+# Checked after resolution, not before: an unset EDGE_IP is recoverable, because
+# the VM knows its own address. Refusing to start over it is the worse failure.
+[ -n "$EDGE_IP" ] || { echo "no edge host found — export EDGE_IP, or run make host"; exit 1; }
 
 # ---------------------------------------------------------------------------
 # One page per beat. BEATS overrides the running order; every beat is a function

@@ -274,6 +274,7 @@ pause || return
 # demo-palette.sh so the two cannot drift. beat_N banners itself as "N · …",
 # which is why these map one-to-one onto sections 1-7 rather than being renamed.
 . "$HERE/beats-palette.sh"
+resolve_edge_ip || true   # the DHCP lease moves on every reboot
 sec_1(){ beat_1; }
 sec_2(){ beat_2; }
 sec_3(){ beat_3; }

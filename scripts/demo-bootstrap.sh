@@ -62,6 +62,11 @@ run(){ local cmd="$1"; printf '\n%s  $ %s' "$B" "$R"
   if [ "$TYPE" = 1 ]; then local i; for ((i=0;i<${#cmd};i++)); do printf '%s' "${cmd:$i:1}"; sleep 0.012; done; printf '\n'
   else printf '%s\n' "$cmd"; fi
   eval "$cmd" 2>&1 | sed 's/^/    /'; }
+# Shared helpers (edge_reachable / resolve_edge_ip / rssh) live with the beats.
+# Sourcing also defines beat_* here, which is harmless: nothing calls them.
+. "$HERE/beats-palette.sh"
+resolve_edge_ip || true   # the DHCP lease moves on every reboot
+
 SSH(){ sshpass -p "${VM_PASSWORD:-demo}" ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=8 \
         "${VM_USER:-demo}@$EDGE_IP" "$@"; }

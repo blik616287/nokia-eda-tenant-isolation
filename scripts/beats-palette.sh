@@ -12,6 +12,40 @@
 #                           PALETTE_API_KEY DEMO_HOST_UID COMPANION B R TEAL GREY
 # =============================================================================
 
+# Every helper the beats call lives here, not in one of the callers. KC() used to
+# sit in demo-palette.sh; under demo-record.sh it was undefined, the node lookup
+# returned empty, and the page announced "the cluster is not up" about a cluster
+# that was running. A shared page cannot depend on which script sourced it.
+S(){ sshpass -p "${VM_PASSWORD:-demo}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+     -o LogLevel=ERROR -o ConnectTimeout=8 "${VM_USER:-demo}@$EDGE_IP" "$@"; }
+KC(){ S "sudo k3s kubectl $*"; }
+
+# Does the edge host answer at this address?
+edge_reachable(){ [ -n "${1:-}" ] && sshpass -p "${VM_PASSWORD:-demo}" ssh \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+  -o ConnectTimeout=5 "${VM_USER:-demo}@$1" true >/dev/null 2>&1; }
+
+# The management address is a DHCP lease: it changes on every reboot, not only on
+# every rebuild. A stale EDGE_IP does not fail loudly -- the page prints "No route
+# to host" and the notes underneath carry on asserting things about a host nobody
+# reached. So find the host rather than trusting what we were told about it.
+resolve_edge_ip(){
+  edge_reachable "${EDGE_IP:-}" && return 0
+  local was="${EDGE_IP:-}" cand
+  for cand in "$(cat "${ROOT_DIR:-..}/.work/edge-ip" 2>/dev/null)" \
+              "$(sudo -n virsh -c "${LIBVIRT_URI:-qemu:///system}" domifaddr "${VM_NAME:-eda-edge-01}" 2>/dev/null \
+                 | awk '/ipv4/{print $4}' | cut -d/ -f1 | head -1)"; do
+    [ -n "$cand" ] && [ "$cand" != "$was" ] || continue
+    if edge_reachable "$cand"; then
+      EDGE_IP="$cand"
+      printf '%s     edge host is at %s, not %s — using the address that answers%s\n' \
+        "${GREY:-}" "$cand" "${was:-<unset>}" "${R:-}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Run a command ON THE EDGE HOST, displayed cleanly.
 #
 # Inlining ssh with nested quotes is how this file broke once: the quoting fell
@@ -27,33 +61,69 @@ rssh(){ local shown="$1" cmd="$2"
 
 beat_1(){
 # ------------------------------------------------------------------
-banner "1 · The edge hosts, in Palette"
-ctx "Everything starts from the platform's own inventory. These are ordinary registered edge hosts — nothing about them is special to this demo except the tags they carry."
+banner "1 · The edge host, in Palette"
+ctx "Everything starts from the platform's own inventory. This is an ordinary registered edge host — the only thing special about it is the tags it carries, and those are visible right here on the record."
 lede "The host this demo runs on, as Palette has it registered:"
 if [ -n "$PALETTE_API_KEY" ]; then
-  # Filtered to this demo's host deliberately. The project carries hosts from
-  # other work whose health is both noise here and nobody else's business. The
-  # count of what is filtered is printed, so the filter is visible, not hidden.
+  # Filtered to this demo's host deliberately: the project carries hosts from
+  # other work whose health is noise here and nobody else's business. The number
+  # filtered is printed, so this reads as a filter and not as a crop.
   PY='import json,os,sys
 want=os.environ.get("DEMO_HOST_UID","lab-gpu-01")
 try: d=json.load(sys.stdin)
-except Exception: print("could not read the edge host list"); sys.exit(0)
-items=d.get("items",[]); shown=0
-for i in items:
-    m=i["metadata"]; st=i.get("status",{})
-    if m["name"]!=want: continue
-    shown+=1
-    print("  %-42s %-10s %s" % (m["name"][:42], st.get("health",{}).get("state","-"), st.get("state","-")))
-if not shown: print("  %s is not registered against this project" % want)
-n=len(items)-shown
+except Exception: print("  could not read the edge host list"); sys.exit(0)
+items=d.get("items",[]); me=[i for i in items if i["metadata"]["name"]==want]
+if not me:
+    print("  %s is not registered against this project" % want)
+else:
+    h=me[0]; m=h["metadata"]; st=h.get("status",{}); hl=st.get("health",{})
+    lab={k:v for k,v in (m.get("labels") or {}).items() if k.startswith("net-iso")}
+    print("  %s" % m["name"])
+    print("    health        %s — %s" % (hl.get("state","-"), hl.get("message","-")))
+    print("    state         %s" % st.get("state","-"))
+    print("    agent         %s" % hl.get("agentVersion","-"))
+    for c in st.get("inUseClusters") or [{"name":"(none)"}]:
+        print("    cluster       %s" % c.get("name"))
+    print("    isolation     provider=%s  interface=%s  vlan=%s" % (
+        lab.get("net-iso-provider","-"), lab.get("net-iso-interface","-"), lab.get("net-iso-vlan","-")))
+    print("                  subnet=%s/%s" % (
+        lab.get("net-iso-subnet-ipv4","-"), lab.get("net-iso-subnet-prefix-length","-")))
+    print("                  %d net-iso label%s on the host record" % (len(lab), "" if len(lab)==1 else "s"))
+n=len(items)-len(me)
 if n: print("  (%d further host%s in this project belong to other work, not shown)" % (n, "" if n==1 else "s"))'
   run_masked \
     "curl -sk -H 'ApiKey: \$PALETTE_API_KEY' -H 'ProjectUid: $PROJECT' '$PALETTE/v1/edgehosts?limit=30' | python3 -c '<this host>'" \
     "curl -sk -H \"ApiKey: \$PALETTE_API_KEY\" -H \"ProjectUid: $PROJECT\" '$PALETTE/v1/edgehosts?limit=30' | DEMO_HOST_UID=$DEMO_HOST_UID python3 -c '$PY'"
+  echo
+  lede "And the cluster that host is running:"
+  PYC='import json,os,sys
+want=os.environ.get("DEMO_CLUSTER","eda-iso-demo")
+try: d=json.load(sys.stdin)
+except Exception: print("  could not read clusters"); sys.exit(0)
+# Rebuilds leave deleted clusters behind under the same name. Matching on name
+# alone finds one of those and puts state=Deleted on screen next to a host that
+# is demonstrably running.
+for i in d.get("items",[]):
+    if i["metadata"]["name"]!=want: continue
+    st=i.get("status",{})
+    if st.get("state")=="Deleted": continue
+    done=[c["type"] for c in (st.get("conditions") or []) if c.get("status")=="True"]
+    print("  %-22s state=%s" % (i["metadata"]["name"], st.get("state","-")))
+    print("    conditions met  %s" % ", ".join(done[-3:]) if done else "    conditions      none reported")
+    break
+else:
+    print("  %s not found — the cluster deploy has not completed" % want)'
+  run_masked \
+    "curl -sk -H 'ApiKey: \$PALETTE_API_KEY' -H 'ProjectUid: $PROJECT' '$PALETTE/v1/spectroclusters?limit=50' | python3 -c '<this cluster>'" \
+    "curl -sk -H \"ApiKey: \$PALETTE_API_KEY\" -H \"ProjectUid: $PROJECT\" '$PALETTE/v1/spectroclusters?limit=50' | DEMO_CLUSTER=$DEMO_CLUSTER python3 -c '$PYC'"
 else
   note "(PALETTE_API_KEY unset — this is the edge host list view in the Palette UI)"
 fi
-link "The same list in the Palette console" "$PALETTE/projects/$PROJECT/overview"
+echo
+note "Everything on this page came off the platform record, not off the host. The tags"
+note "are what the rest of the demo follows: section 4 shows the VLAN they name on the"
+note "fabric, section 5 shows the interface they built on the machine."
+link "The same host in the Palette console" "$PALETTE/projects/$PROJECT/overview"
 pause || return
 }
 
@@ -88,8 +158,13 @@ note "transport underneath is plain HTTP on this management network, not PXE and
 note "a BMC. The shape is demonstrated; the channel is not, and we do not claim it."
 echo
 lede "The agent, and the version it is running:"
-run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'systemctl is-active spectro-stylus-agent; sudo journalctl -u spectro-stylus-agent --no-pager --since \"-10 min\" | grep -oE \"version=v[0-9.]+[^ ]*\" | sort -u | tail -1'"
-note "installed from the agent-mode tarball; nothing else was configured by hand"
+if edge_reachable "$EDGE_IP"; then
+  rssh 'systemctl is-active spectro-stylus-agent; journalctl -u spectro-stylus-agent | grep -oE "version=v[0-9.]+"' \
+       'systemctl is-active spectro-stylus-agent; sudo journalctl -u spectro-stylus-agent --no-pager --since "-30 min" | grep -oE "version=v[0-9.]+[^ ]*" | sort -u | tail -1'
+  note "installed from the agent-mode tarball; nothing else was configured by hand"
+else
+  bad "The edge host is not answering at $EDGE_IP — not claiming anything about it."
+fi
 pause || return
 }
 
