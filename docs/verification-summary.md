@@ -54,6 +54,12 @@ EDA has no server-name-keyed API — nothing answers *"which port is host X on"*
 
 Verified on the live fabric: an edge `TopoLink` accepts a `remote.node` naming a host EDA does not manage, retains type `edge`, and stays operationally up. No `TopoNode` is required for the remote side.
 
+**Superseded.** It works, and it is not what should ship. Nokia's review — supported by their own
+schema, which says an edge link specifies the local side only — is that the server-to-port record
+does not belong in EDA topology intent. It moves to the Palette host record, and the provider takes
+the leaf port directly (RFC-0021 §4e). Everything else in this section stands: what is bound, and
+how the fabric confirms it, is unchanged.
+
 ### 3.4 Safety properties
 
 Tenant isolation fails in a specific and dangerous way: a host that is *not* attached looks identical to one that is healthy. The provider is therefore **fail-closed** throughout:
@@ -72,6 +78,12 @@ Every schema in the implementation was derived from the **live EDA API**, not fr
 This is worth stating because it shaped the approach: for this integration, the live API is treated as the source of truth and the documentation as a hint.
 
 ## 5. What is **not** yet proven
+
+**East/west on the host — open, and disputed.** The fabric must place every rail port in the right
+tenant's VRF, which is modelled here. Whether anything should configure rail *interfaces on the host*
+is not agreed between the two sides: Nokia's position is that an AI host needs north/south and
+east/west configured; ours is that node-prep leaves rail NICs address-less and NV-IPAM assigns them
+per workload. Recorded rather than resolved. Companion §5.1.
 
 **Forwarding-plane isolation.** Tenancy semantics are proven above — distinct EVI/VNI/route-targets with overlapping address space — but demonstrating that traffic genuinely *cannot* cross between tenants requires real endpoints, which requires running the fabric with `SIMULATE=false` and a licence. This is a licensing question, not a technical blocker.
 

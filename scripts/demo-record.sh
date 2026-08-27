@@ -69,7 +69,8 @@ PALETTE="${PALETTE_ENDPOINT:-https://palette.example.com}"
 PROJECT="${PALETTE_PROJECT_UID:-<project-uid>}"
 
 # Reference material shown alongside the relevant sections.
-COMPANION="$ROOT_DIR/docs/companion.md"
+REPO="https://github.com/blik616287/nokia-eda-tenant-isolation"
+COMPANION="$REPO/blob/main/docs/companion.md"
 EDA_DOCS="https://docs.eda.dev/"
 SRL_DOCS="https://documentation.nokia.com/srlinux/"
 SRL_LEARN="https://learn.srlinux.dev/"
@@ -312,7 +313,11 @@ pause || return
 sec_9(){
 # ---------------------------------------------------------------------------
 banner "9 · A GPU host bound to its physical leaf port"
-ctx "EDA has no server-name-keyed API — nothing answers 'which port is host X on'. We close that by reverse-indexing the Day-0 cabling intent: edge TopoLinks whose remote.node names the host. This is the part Nokia reviewed, and the part we are changing."
+ctx "To put a server into a tenant, something has to know which switch port it is plugged into. There is no API for that question, and the reason is reasonable: EDA models the fabric, and a GPU server is not part of the fabric. What we did was read the cabling records backwards — the Day-0 topology already records that port X connects to host Y, so we searched it by host. It works. Nokia reviewed it and said the record does not belong there, and we agree. The replacement is at the bottom of this page."
+note "In plain terms: we needed a phone book from server to switch port, nobody keeps"
+note "one, so we read the switch's own wiring list backwards. That works and it is the"
+note "wrong place to look it up."
+
 lede "Running the provider's reconcilers against the live fabric."
 if [ -z "${EDA_KUBECONFIG:-}" ]; then
   note "EDA_KUBECONFIG not set — showing the cabling intent rather than the live run"
@@ -360,7 +365,7 @@ note "switch side only, and we accept that. The reverse-index is being replaced 
 note "leaf port carried directly on the host record — RFC-0021 §4e. What is bound, and"
 note "how the fabric confirms it, is unchanged either way."
 echo
-link "Integration companion — §4.3, host-to-port resolution" "$COMPANION"
+link "Integration companion — §4.3, host-to-port resolution" "$COMPANION#43-host-to-leaf-port-resolution-the-part-we-are-replacing"
 link "RFC 8365 — Network Virtualization Overlay Solution Using EVPN" "$RFC8365"
 pause || return
 }
@@ -368,7 +373,10 @@ pause || return
 sec_10(){
 # ---------------------------------------------------------------------------
 banner "10 · Fail-closed behaviour"
-ctx "Tenant isolation fails in a specific way: a host that is NOT attached looks identical to one that is healthy. Nothing errors and nothing alerts, so the design has to treat partial success as failure."
+ctx "This is the failure that worries us most, and it is worth stating before the tests run. When network isolation does not happen, nothing visibly breaks. The server boots, joins its cluster and passes every health check — it simply is not isolated. No error, no alert, and the first person to find out is whoever should not have been able to reach it. So anything less than complete success has to be treated as failure."
+note "In plain terms: a lock that silently fails open. The tests below exist to prove"
+note "we refuse to write anything at all rather than write half of it."
+
 lede "These tests run offline — they pass with the fabric switched off."
 gotest go test -count=1 ./internal/controller/eda/... -v 2>&1 \
   | grep -E "^    --- PASS" | sed 's/^    --- PASS: /    /' \
@@ -389,7 +397,10 @@ pause || return
 sec_11(){
 # ---------------------------------------------------------------------------
 banner "11 · The host side — a VLAN raised from tags"
-ctx "Isolation is established in cloud-init, before Kubernetes starts: the node IP and the CNI come up ON the isolated interface. Anything delivered after a cluster is healthy is too late to participate — which is why this is a provider rather than an add-on."
+ctx "The switch side is only half of it. The server has to put its own traffic on the matching VLAN, and it has to do that before Kubernetes starts, because the node's address and the pod network both come up on that interface. Anything delivered after the cluster is healthy has missed its moment. That timing is the whole reason this is built into the platform rather than installed onto a running cluster."
+note "In plain terms: the machine has to be on the right network before it is a"
+note "Kubernetes node at all, so this cannot be something you apply afterwards."
+
 lede "This host carries five isolation tags in Palette. Nobody has logged into it."
 run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'ip -d link show enp2s0.310 | head -3'"
 run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'ip -brief addr show enp2s0.310'"
@@ -442,7 +453,11 @@ pause || return
 sec_12(){
 # ---------------------------------------------------------------------------
 banner "12 · Both halves, at the same time"
-ctx "Each half has been shown separately. This is the same VLAN on the leaf port and on the host cabled to it, placed there by two subsystems with no knowledge of each other."
+ctx "Both halves have now been shown on their own. Here they are together — the same VLAN on the switch port and on the server plugged into it. The two were put there by different systems that never speak to each other and never read each other's result. They agree because both were told the same thing."
+note "In plain terms: two people set the same channel on two radios from the same"
+note "written order. If they ever disagreed nothing would break loudly — which is"
+note "exactly the silent failure the previous page is about."
+
 bi="nokia-demo-pool-leaf1-ethernet-1-9"
 if ! k get bridgeinterface "$bi" >/dev/null 2>&1; then
   note "programming the fabric half through the provider now…"
@@ -472,7 +487,7 @@ note "They agree because both derive from the same declared intent: the provider
 note "the host to its leaf port through the Day-0 cabling intent, and the agent resolved the"
 note "same host's tags into a local interface."
 echo
-link "Integration companion — §2, the two halves" "$COMPANION"
+link "Integration companion — §2, the two halves" "$COMPANION#2-what-we-are-integrating-and-why-it-is-not-trivial"
 link "SR Linux learn — EVPN in practice" "$SRL_LEARN"
 pause || return
 }
@@ -480,7 +495,10 @@ pause || return
 sec_13(){
 # ---------------------------------------------------------------------------
 banner "13 · How Palette drives this — the ComputePool path"
-ctx "Everything so far drove the provider's CRs directly, because the EDA enum value is not merged upstream yet. This section shows the path a user actually takes, what it produces, and exactly which piece is still missing."
+ctx "Everything so far was driven by calling our own code directly, which is not how anyone would actually use this. A user picks some hosts, groups them into a pool, and asks for that pool to be isolated. This page is that path: what a user declares, what it has to turn into, and precisely which link in the chain is not written yet."
+note "In plain terms: you have seen the engine run on a test bench. This is where it"
+note "connects to the pedal, and one linkage is still missing."
+
 lede "A user does not write EDA intent. They declare isolation on a ComputePool:"
 cat <<'YAML' | sed 's/^/    /'
 apiVersion: spectrocloud.com/v1alpha1
@@ -520,7 +538,10 @@ pause || return
 sec_14(){
 # ---------------------------------------------------------------------------
 banner "14 · Who writes the host's configuration, at fleet scale"
-ctx "Everything so far depended on the isolation values already being in /var/lib/spectro/userdata. On this host that file was written by hand, over SSH, before the agent first registered — honest for one machine, and exactly what a fleet breaks. Configuring a host's primary interface from a controller it reaches over that interface is circular. This is how the circle is broken."
+ctx "Everything so far assumed the server already knew its own isolation settings. On this machine, someone put that file there by hand before it ever registered. That is honest for one server and impossible for a thousand — and it is also circular, because you cannot configure a machine's main network connection by talking to it over that same connection. This page is the way out of the circle."
+note "In plain terms: the machine has to be told which network it belongs to before it"
+note "can be reached on that network. Something else has to answer that, at boot."
+
 lede "Everything a booting host presents about itself — one value:"
 run "echo $DEMO_MAC"
 note "In production this is not even a lookup. The leaf's DHCP relay inserts Option 82"
@@ -566,8 +587,8 @@ note "DPU addressing arrives over DHCP and removes this circularity rather than 
 note "around it. It is the better answer and it is yours — companion §8 for why we treat"
 note "it as an optimisation rather than a prerequisite."
 echo
-link "Integration companion — §5.1, the bootstrap dependency" "$COMPANION"
-link "The same ground in full — make demo-bootstrap" "$ROOT_DIR/scripts/demo-bootstrap.sh"
+link "Integration companion — §5.1, the bootstrap dependency" "$COMPANION#51-what-we-configure-and-what-we-deliberately-do-not"
+link "The same ground in full — make demo-bootstrap" "$REPO/blob/main/scripts/demo-bootstrap.sh"
 pause || return
 }
 
@@ -575,7 +596,10 @@ sec_15(){
 # ---------------------------------------------------------------------------
 banner "15 · What is proven, and what is not"
 TX1=$(txcount)
-ctx "Go replays cached test output byte-for-byte, so on-screen output alone cannot prove a run was live. The EDA transaction count can."
+ctx "Everything up to here has been a claim. This is the accounting, including a caution about the evidence itself: Go replays a cached test result exactly, its timing included, so a green result on screen does not prove anything ran just now. The fabric's own transaction counter does, because nothing on this side can fake it."
+note "In plain terms: do not trust the test output, trust the count the switches keep."
+note "Zero would mean this whole session touched nothing, whatever the screen said."
+
 lede "Transactions driven through EDA's engine during this session:"
 note "EDA transactions: $((TX1-TX0))   (zero would mean nothing actually ran)"
 run "kubectl --context $KCTX -n eda-system get transactionresults --no-headers | tail -4"
@@ -593,14 +617,17 @@ bad "NOT PROVEN — multi-rail hosts and pool scaling on real hardware."
 note "Modelled and tested in the reconciler, but not exercised against a DGX-class host"
 note "with several fabric-facing NICs, nor against a fabric with thousands of edge links."
 echo
-link "Integration companion — §6, the full proven / not-proven table" "$COMPANION"
+link "Integration companion — §6, the full proven / not-proven table" "$COMPANION#6-what-is-proven-and-what-is-not"
 pause || return
 }
 
 sec_16(){
 # ---------------------------------------------------------------------------
 banner "16 · Where this stands"
-ctx "Everything shown runs on code that is either merged or in review. This is the delivery picture, including what is still open and who it sits with."
+ctx "Nothing here was staged for today. Everything shown runs on code that is either already merged or open in review, and this page says which is which, what is still unwritten, and whose desk each open item sits on."
+note "In plain terms: nothing you were shown depends on unmerged work to be TRUE."
+note "It depends on unmerged work to SHIP, and those are different problems."
+
 
 arc "THE STYLUS SIDE — merged"
 note "#6354  resolve the isolated fabric NIC by name, build the VLAN sub-interface"
@@ -635,16 +662,42 @@ note "9124 exists because the policy step passed every non-Aviz provider through
 note "in-policy — widening the enum without it would have disabled governance for exactly"
 note "the provider being added to obtain a guarantee."
 
-arc "OPEN"
+arc "OPEN — AND ONE WE DISAGREE ON"
 note "  ▸ forwarding-plane negative test                    — needs a Nokia licence"
 note "  ▸ multi-rail and pool scaling                       — needs GPU hardware"
-note "  ▸ confirmation of the findings in companion §07     — Nokia EDA engineering"
-note "  ▸ whether §4.3 is the intended resolution pattern  — Nokia EDA engineering"
+note "  ▸ confirmation of the findings in companion §7      — Nokia EDA engineering"
+note "  ▸ whether §4.3 is the intended resolution pattern   — Nokia EDA engineering"
 note "  ▸ release sequencing for the four PRs above         — SpectroCloud"
+echo
+bad "EAST/WEST ON THE HOST — the two sides do not currently agree, and smoothing"
+bad "over that would waste the meeting."
+note "Your position, as we understand it: an AI host needs at least two networks"
+note "configured — north/south, and east/west for RDMA and storage — with smart NICs"
+note "in scope."
+note "Ours: node preparation deliberately leaves the rail NICs with no addresses at"
+note "all, and NV-IPAM and Multus assign them per workload inside the cluster. On that"
+note "view the host side of east/west is not the edge agent's job, and doing it there"
+note "would collide with the tooling that already owns it."
+echo
+good "Both can be true, and we think they are. The fabric must put every rail port in"
+good "the right tenant's VRF — that part is ours and it is already modelled, one"
+good "BridgeInterface per port. The host side of the rails stays with NV-IPAM."
+note "What is genuinely unresolved is whether anything should configure rail interfaces"
+note "ON THE HOST beyond that, and if so whether it belongs to the edge agent at all."
+note "We would rather settle it here than discover it during an integration."
+echo
+note "The same question again for storage, where sites differ from each other more than"
+note "they differ from us: a shared multi-tenant storage VLAN needs addresses that do"
+note "NOT overlap, which is the opposite of the property this whole demo relies on. The"
+note "fabric side already supports a host on two networks — two attachment requests give"
+note "two BridgeInterfaces on one port with different VLANs. The host-side tag contract"
+note "carries exactly one interface, so that half is not expressible yet."
+echo
+link "Integration companion — §5.1, scope, and §5.2, networks beyond the tenant VLAN" "$COMPANION#51-what-we-configure-and-what-we-deliberately-do-not"
 echo
 good "Nothing shown today depends on unmerged work to be true — only to ship."
 echo
-link "Integration companion — §1, the ask, and §7, the findings" "$COMPANION"
+link "Integration companion — §1, the ask, and §7, the findings" "$COMPANION#1-the-ask-up-front"
 link "#8944 — hue-apis: EDA provider + CEL fix" "https://github.com/spectrocloud/mural/pull/8944"
 link "#9124 — hue: policy-step EDA case" "https://github.com/spectrocloud/mural/pull/9124"
 link "#8945 — frisket: EDA client + isolation unit" "https://github.com/spectrocloud/mural/pull/8945"
@@ -655,7 +708,10 @@ pause || return
 sec_17(){
 # ---------------------------------------------------------------------------
 banner "17 · Teardown"
-ctx "This session created real fabric objects. lab-gpu-01 has one cabled port, so leaving an attachment behind would make the next run fail on contention. Teardown is part of the demonstration, not an afterthought."
+ctx "This session created real objects on a real fabric, so it has to remove them. There is a practical reason as well as a tidy one: this server has exactly one cabled port, and an attachment left behind would make the next run fail over it. Putting the fabric back is part of the demonstration — a change you cannot cleanly reverse is not one you should be making automatically."
+note "In plain terms: we are showing you the undo, because a system that only knows"
+note "how to create things is not finished."
+
 if [ "${TEARDOWN:-1}" = 0 ]; then
   note "TEARDOWN=0 — demo state left in place for inspection"
 else

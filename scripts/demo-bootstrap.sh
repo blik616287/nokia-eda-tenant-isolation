@@ -22,7 +22,8 @@ ROOT_DIR="$(cd "$HERE/.." && pwd)"
 : "${KCTX:=kind-eda-demo}"; : "${NS:=eda}"
 : "${EDGE_IP:=}"; : "${AUTO:=0}"; : "${TYPE:=1}"
 : "${DEMO_MAC:=52:54:00:26:9a:5e}"
-COMPANION="$ROOT_DIR/docs/companion.md"
+REPO="https://github.com/blik616287/nokia-eda-tenant-isolation"
+COMPANION="$REPO/blob/main/docs/companion.md"
 ENDPOINT="$HERE/provision-endpoint.py"
 
 B=$'\e[1m'; DIM=$'\e[2m'; IT=$'\e[3m'; R=$'\e[0m'
@@ -176,7 +177,7 @@ note "addressing arrives over DHCP, which removes the circularity instead of rou
 note "around it. We treat it as an optimisation rather than a prerequisite because most"
 note "sites are not cabled for it — companion §8."
 echo
-link "Integration companion — §5.1, the bootstrap dependency" "$COMPANION"
+link "Integration companion — §5.1, the bootstrap dependency" "$COMPANION#51-what-we-configure-and-what-we-deliberately-do-not"
 link "Integration companion — §8, DPUs and smart NICs" "$COMPANION"
 printf '\n%s   Thank you.%s\n\n' "$B$TEAL" "$R"
 pause || return

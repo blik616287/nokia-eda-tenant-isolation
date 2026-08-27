@@ -37,23 +37,31 @@ Each demo is paginated — one section per page. `enter` advances, `p` goes back
 current page, `g 5` jumps to section 5, `q` quits. `AUTO=1` advances on a timer, `TYPE=0` turns off
 the typewriter.
 
+Three cuts of the same evidence, all live against the same environment:
+
+| Target | What it is |
+|---|---|
+| `make demo` | Eighteen pages: the story, then how it works, then what is open. |
+| `make demo-tyler` | The same sections in a shorter order, led by the ComputePool path. |
+| `make demo-palette` | The story alone — pages 1–7 — for a Palette-weighted room. |
+| `make demo-bootstrap` | Section 14 on its own: who writes a host's configuration at fleet scale. |
+
 Tear down with `make clean` (fabric state) or `make destroy` (also removes the VM and its Palette
 records).
 
 ### The edge host's management address moves
 
-`make host` records the VM's address in `.work/edge-ip`, and `make demo` reads it from there. That
-value goes stale: the VM reboots during the cluster deploy, and libvirt hands it a **different**
-DHCP lease each time. It changes on every reboot, not only on every rebuild.
+The VM's management address is a DHCP lease: it changes on every reboot, not only on every rebuild.
+The walkthroughs handle this themselves — each one tries `EDGE_IP`, then `.work/edge-ip`, then asks
+libvirt, and prints which address answered:
 
-If a demo run cannot reach the host — sections 4 and 5 degrade, everything else still works — re-read
-the current address rather than trusting the recorded one:
-
-```bash
-export EDGE_IP=$(sudo virsh -c qemu:///system domifaddr eda-edge-01 \
-                 | awk '/ipv4/{print $4}' | cut -d/ -f1)
-./scripts/demo-record.sh
 ```
+edge host is at 192.168.122.206, not 192.168.122.178 — using the address that answers
+```
+
+The libvirt lookup uses `sudo -n`, so it can never sit waiting for a password mid-demo; if sudo is
+unavailable it simply falls through. You should not need to export `EDGE_IP` at all, but it still
+wins if you set it and the host answers there.
 
 Only the *management* address moves. The tenant address is fixed by the isolation tags, so
 `enp2s0.310` stays at `10.210.0.50/24` throughout — if that one changes, something is genuinely
@@ -111,7 +119,9 @@ fails in a way that looks like a cluster still coming up.
 
 | Path | Purpose |
 |---|---|
-| `scripts/demo-record.sh` | The walkthrough. Eleven pages, live against the fabric, tears its own state down. |
+| `scripts/demo-record.sh` | The walkthrough. Eighteen pages, live against the fabric, tears its own state down. |
+| `scripts/beats-palette.sh` | Pages 1–7 and the shared helpers, sourced by both walkthroughs so they cannot drift. |
+| `scripts/demo-palette.sh` | `make demo-palette` — the story on its own, ten pages, for a Palette-weighted room. |
 | `scripts/demo-bootstrap.sh` | The bootstrap dependency: a host boots knowing only its MAC and is served its isolation values. |
 | `scripts/provision-endpoint.py` | Derives those values live from the fabric. Fails closed when the address does not fit the tenant. |
 | `scripts/build-edge-host.sh` | Edge host from nothing to a live tenant VLAN, ~4½ min, timed per phase. |
@@ -157,7 +167,7 @@ delete by hand, do it in that order.
 | Multi-rail hosts; pool scaling on real hardware | **Not proven** — needs hardware |
 
 The last two are stated plainly because the first five are stronger for it. See `docs/companion.md`
-§06 for the detail, and §01 for what we are asking Nokia to confirm.
+§6 for the detail, and §1 for what we are asking Nokia to confirm.
 
 ## Security
 

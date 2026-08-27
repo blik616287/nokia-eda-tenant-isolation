@@ -35,7 +35,8 @@ ROOT_DIR="$(cd "$HERE/.." && pwd)"
 : "${PALETTE_API_KEY:=}"
 PALETTE="${PALETTE_ENDPOINT:-https://palette.example.com}"
 PROJECT="${PALETTE_PROJECT_UID:-<project-uid>}"
-COMPANION="$ROOT_DIR/docs/companion.md"
+REPO="https://github.com/blik616287/nokia-eda-tenant-isolation"
+COMPANION="$REPO/blob/main/docs/companion.md"
 
 B=$'\e[1m'; DIM=$'\e[2m'; IT=$'\e[3m'; R=$'\e[0m'
 TEAL=$'\e[38;5;30m'; SAND=$'\e[38;5;179m'; GREY=$'\e[38;5;244m'

@@ -131,7 +131,7 @@ route target into status. Supports **adopt** (an operator-authored VN already ex
 One per ComputePool. Resolves every host in the pool to a physical leaf port and creates one
 `BridgeInterface` per port, on the subnet's VLAN.
 
-### 4.3 Host → leaf port resolution (**the part we are replacing**)
+### 4.3 Host to leaf port resolution (**the part we are replacing**)
 
 EDA has no server-name-keyed API. Nothing answers *"which port is host X on"*. We close that by
 reverse-indexing the Day-0 cabling intent: edge `TopoLink`s whose `remote.node` names the host, read

@@ -1,33 +1,46 @@
 # EDA + PaletteAI — Live Demo Runbook
 
-Four acts, **all four proven and safe to run live**. Acts 1–3 are fabric-side; Act 4 is the host side, verified 25 Aug 2026 on `lab-gpu-01` with stylus v4.9.39-rc.4.
+The walkthrough is `make demo`: eighteen pages, one section per page, driven live against the
+fabric. `enter` advances, `p` goes back, `r` replays the current page, `g 12` jumps to section 12,
+`q` quits. `AUTO=1` advances on a timer and `TYPE=0` turns off the typewriter.
 
-Each act has: the setup, the commands, what to expect, and why it matters. The "why" lines are the ones worth saying out loud — the commands are just evidence for them.
+The pages fall into three groups:
+
+| Pages | What they are |
+|---|---|
+| 0 | Clean-slate check — the fabric is in a known state before anything is claimed |
+| 1-7 | **The story.** The host in Palette, what it is, its tags, the VLANs those tags name, the interface on the machine, the cluster, and where its traffic goes. Shared with `make demo-palette`. |
+| 8-14 | **How it works.** The fabric, host-to-port binding, fail-closed behaviour, the host side, both halves together, the ComputePool path, and the fleet-scale bootstrap question. |
+| 15-17 | Proven / not proven, delivery status and what is open, then teardown. |
+
+This document covers the five pages that carry the technical argument - sections 8 to 12 - because
+those are where a question can take you somewhere the screen does not go. The rest explains itself
+on the page.
+
+The "why" lines are the ones worth saying out loud. The commands are only evidence for them.
 
 ---
 
 ## Pre-flight (2 minutes, before anyone is watching)
 
 ```bash
-# 1. Is the fabric up?
-kubectl --context kind-eda-demo -n eda get toponodes
-
-# 2. Are both tenants still provisioned?
-kubectl --context kind-eda-demo -n eda get bridgedomains
-
-# 3. Is the repo ready to run tests?
-cd ~/Desktop/nokia/mural/frisket
-export GOPRIVATE='github.com/spectrocloud/*' GOTOOLCHAIN=go1.27.0 GOWORK=off
-export EDA_KUBECONFIG=<path-to-eda.kubeconfig> EDA_FABRIC_NODE=lab-gpu-01
+cd ~/Desktop/nokia-eda-tenant-isolation
+make verify          # transaction count now; compare it after the run
+make demo            # or AUTO=1 TYPE=0 make demo for a silent dry pass
 ```
 
-If step 2 shows `tenant-a-bd` and `tenant-b-bd` both `Up`, you have a demo.
+`make deps` names anything missing. The walkthrough finds the edge host itself - it tries `EDGE_IP`,
+then `.work/edge-ip`, then libvirt - so a stale address is no longer something to check by hand.
 
-**If the fabric is down:** skip to Act 3, which is entirely offline and still makes the strongest safety argument.
+Section 0 does the rest of the pre-flight on screen: it surveys the fabric, clears anything a
+previous run left behind, and refuses to claim anything until the starting state is verified.
+
+**If the fabric is down:** section 10 is entirely offline and still makes the strongest safety
+argument on its own. `g 10` jumps straight to it.
 
 ---
 
-## Act 1 — The fabric, and what "isolated" actually means
+## Section 8 — The fabric, and what "isolated" actually means
 
 **Rationale.** Nokia's audience will want to know we understand EVPN, not just that we called an API. This act shows we are provisioning real IP-VRF/MAC-VRF constructs and reading back the identifiers EDA allocated.
 
@@ -71,14 +84,26 @@ done
 
 ---
 
-## Act 2 — A GPU host bound to a leaf port
+## Section 9 — A GPU host bound to a leaf port
 
 **Rationale.** This is the part with no Aviz equivalent, and it is worth explaining *why* it was hard: EDA has no server-name-keyed API. Nothing answers "which port is host X on".
 
+**And it is the part being replaced.** Nokia reviewed the reverse-index and said an edge `TopoLink`
+should describe the switch side only — their schema agrees, and so do we. The leaf port moves onto
+the host record instead (RFC-0021 §4e). What gets bound, and how the fabric confirms it, does not
+change. Say this before it is raised; the demo does the same on section 9.
+
+Section 9 runs this for you. To drive it directly, `FRISKET` is the provider module (`.env` sets it;
+it defaults to a sibling checkout):
+
 ```bash
-cd ~/Desktop/nokia/mural/frisket
-go test -tags smoke ./internal/smoke/... -run TestReconcilersAgainstLiveCluster -v 2>&1 | grep -E "UNIT READY|BOUND|FABRIC CONFIRMS|PASS"
+cd "$FRISKET"
+go test -count=1 -tags smoke ./internal/smoke/... -run TestReconcilersAgainstLiveCluster -v \
+  2>&1 | grep -E "UNIT READY|BOUND|FABRIC CONFIRMS|PASS"
 ```
+
+`-count=1` is not optional: Go replays a cached result byte-for-byte, its timing included, so a
+cached PASS is indistinguishable from a live run on screen.
 
 *Expect (numbers vary run to run — EDA allocates them):*
 
@@ -99,7 +124,7 @@ That distinction is the one to land. EDA accepts a `BridgeInterface` long before
 
 ---
 
-## Act 3 — Fail-closed, and why it is the important part
+## Section 10 — Fail-closed, and why it is the important part
 
 **Rationale.** Tenant isolation fails in a specific and nasty way: a host that is *not* attached looks exactly like a healthy one. Nothing errors. This act shows we designed for that.
 
@@ -128,7 +153,7 @@ If someone is sceptical that green tests mean anything:
 
 ---
 
-## Act 4 — Host-side VLAN
+## Section 11 — Host-side VLAN
 
 **Status: proven** on 25 Aug 2026, edge host `lab-gpu-01` (`192.168.122.171`), stylus agent-mode **v4.9.39-rc.4**.
 
@@ -165,7 +190,7 @@ sshpass -p demo ssh demo@192.168.122.171 \
 
 ---
 
-## Act 5 — Both halves, at the same time
+## Section 12 — Both halves, at the same time
 
 **Status: proven** 25 Aug 2026. This is the closing shot: the *same VLAN* on the leaf port and on the host cabled to it, each put there by a different half of the system.
 
@@ -223,7 +248,7 @@ Every schema came from the live 26.4.3 API rather than the documentation, after 
 
 ## If something breaks live
 
-- **Fabric unreachable** → Act 3 is fully offline and makes the strongest engineering argument on its own.
+- **Fabric unreachable** → section 10 is fully offline and makes the strongest engineering argument on its own.
 - **Smoke test fails** → it needs `EDA_KUBECONFIG` and `EDA_FABRIC_NODE`; check those before blaming the fabric. `kubectl get bridgedomains` is the quick discriminator.
 - **Numbers differ from this document** → expected and worth saying so. VNI/EVI are allocated per run by EDA. If they were identical every time, that would mean we were computing them, which is the bug we avoided.
 - **Asked something you do not know** → "I would have to check" beats a guess in front of a vendor. Everything in Acts 1–3 is reproducible on the spot.
