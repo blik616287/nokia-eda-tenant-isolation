@@ -245,6 +245,14 @@ stays with NV-IPAM.** What is genuinely unresolved is whether anything needs to 
 interfaces *on the host* beyond that, and if so, whether that belongs to the edge agent at all. We
 would rather settle that explicitly than discover it in an integration.
 
+**One ambiguity worth naming, because our lab hides it.** "The interface we configure" is described
+two ways in our own conversations: as the north/south management NIC, and as the node/CNI interface.
+In a production host those are usually the *same* NIC — the machine has one general-purpose interface
+plus its rails. In the lab they are deliberately two: one NIC keeps a management path so we can reach
+the host, and the isolated VLAN carries the node address. That makes the demo easier than production
+in a specific way, and it is the reason the next paragraph is a real gap rather than a theoretical
+one.
+
 **The bootstrap dependency, stated plainly.** Configuring a host's primary interface from a
 controller the host reaches *over that interface* is circular. We avoid it here by carrying the
 isolation tags in cloud-init, so the host knows its VLAN and address before it talks to anything —
@@ -470,12 +478,14 @@ safer than a guessed one — please prefer an error to an empty list. Second, we
 reconcile rather than cache it, so a mapping that changes when a machine is re-cabled should be
 reflected without us being told.
 
-**A cheaper variant, if you return the VLAN.** Colleagues who have run LLDP in production note that
-`lldpctl` on a host reports the VLAN seen on each interface. If the API returns a tenant's VLAN ID,
-the host can find its own fabric-facing NIC by matching it, and neither side needs a hostname-to-port
-table at all. It only holds where the switch advertises VLAN in LLDP and the host runs an LLDP
-client, so it complements the mapping rather than replacing it — but if the VLAN alone is enough,
-this contract gets much smaller.
+**A cheaper variant we could not verify.** LLDP can carry VLAN in the IEEE 802.1 TLVs, and a
+colleague reports having used that in production: if the API returns a tenant's VLAN ID, the host
+could find its own fabric-facing NIC by matching it, and neither side would need a hostname-to-port
+table. We are flagging it rather than proposing it, because on this fabric we could not confirm it —
+no LLDP neighbour state is exposed on `interfacestate`, the only LLDP resource is a UI overlay, and a
+colleague on the other provider could not get it working either. **Does SR Linux advertise the 802.1
+VLAN TLVs, and is that neighbour state readable through the API?** If yes, this contract gets much
+smaller.
 
 **Until it exists**, the leaf port is supplied on the attachment request from our own inventory
 (§7.4). That keeps us unblocked and is the static-inventory case in your own framing; the API

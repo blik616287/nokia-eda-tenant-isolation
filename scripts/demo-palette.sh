@@ -188,19 +188,27 @@ pause
 
 # ---------------------------------------------------------------- 7
 banner "7 · Where the cluster's traffic actually goes"
-ctx "Worth being precise here, because it is the question a network engineer will ask. Pod and Service addresses come from the cluster's own CIDRs — they are not tenant addresses. What makes them isolated is the interface every packet leaves on."
-lede "The cluster's own address ranges:"
-run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'sudo grep -oE \"\\\"(cluster-cidr|service-cidr|node-ip)\\\":\\[[^]]*\\]\" /etc/rancher/k3s/config.d/90_userdata.yaml'"
+ctx "This is the question a network engineer asks, so it is worth being exact. Pod and Service addresses are the cluster's own — they are not tenant addresses, and they are not the isolated subnet. What makes them isolated is the interface every packet leaves on."
+lede "The cluster's address ranges, as they actually are:"
+run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'sudo k3s kubectl get ippools.crd.projectcalico.org -o custom-columns=POOL:.metadata.name,CIDR:.spec.cidr,IPIP:.spec.ipipMode --no-headers | head -1'"
+run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'sudo k3s kubectl get svc -A --no-headers | awk \"{print \\\$4}\" | grep -v none | sort -u | head -3'"
+note "pods come from Calico's pool, Services from the service CIDR. Neither is 10.210.0.0/24."
 echo
-lede "Pods, and the addresses they hold:"
-run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'sudo k3s kubectl get pods -A -o wide --no-headers 2>/dev/null | awk \"{print \\\$1, \\\$2, \\\$7}\" | head -12'"
+lede "Which is the point — look at what each pod actually holds:"
+run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'sudo k3s kubectl get pods -A -o wide --no-headers | awk \"\\\$7 ~ /[0-9]/ {printf \\\"  %-46s %s\\\\n\\\", \\\$2, \\\$7}\" | sort -k2 | head -9'"
+note "host-network pods (calico-node, kube-vip) carry 10.210.0.50 — the isolated address."
+note "pod-network pods carry Calico pool addresses."
 echo
-note "Host-network pods carry 10.210.0.50 — the isolated address."
-note "Pod-network pods carry cluster-CIDR addresses, and every packet they send"
-note "leaves this node on enp2s0.310, because that is the node's only cluster address."
-good "So the pod network rides the tenant VLAN, whatever addresses it uses internally."
-note "A second tenant on the same leaf, with the same pod CIDR, still cannot reach it —"
-note "the separation is the bridge domain, not the addressing."
+lede "So does the pod network actually ride the tenant VLAN? Ask the kernel:"
+run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'ip route get 10.210.0.99; ip -brief addr show tunl0'"
+echo
+good "Traffic to any peer node leaves on enp2s0.310, sourced from 10.210.0.50."
+note "Calico runs IPIP in Always mode, so every pod-to-pod packet between nodes is"
+note "encapsulated with that outer address — the tenant VLAN carries the pod network,"
+note "whatever addresses the pods use inside it."
+echo
+note "Which is why a second tenant could run the identical pod CIDR on the same leaf"
+note "and still not reach this one. The separation is the bridge domain, not the addressing."
 pause
 
 arc "WHERE WE ARE GOING"
