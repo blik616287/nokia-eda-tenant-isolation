@@ -91,7 +91,7 @@ demo:
 # ComputePool path and the piece of it that is not written yet, then shows the
 # sections that back it up. Section 1 (fabric internals) is dropped; every other
 # section runs, and the numbering is unchanged, so cross-references still hold.
-DEMO_TYLER_SECTIONS ?= 0 6 2 4 5 3 7 8 9 10
+DEMO_TYLER_SECTIONS ?= 0 1 2 3 4 5 6 7 13 9 12 10 14 15 16 17
 demo-tyler:
 	@test -n "$(EDGE_IP)" || { echo "EDGE_IP unset — run 'make host', or export EDGE_IP=<addr>"; exit 1; }
 	@EDGE_IP=$(EDGE_IP) FRISKET=$(FRISKET) SECTIONS="$(DEMO_TYLER_SECTIONS)" \

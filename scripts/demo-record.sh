@@ -8,31 +8,41 @@
 #
 # What it shows, live against a running fabric:
 #   0. Clean-slate check — the fabric is in a known state before any claim
-#   1. The fabric, and what "isolated" means here
-#   2. A GPU host resolved to its physical leaf port and attached
-#   3. Fail-closed behaviour — the failure mode that is silent
-#   4. The host side — a VLAN raised from Palette tags, and k8s on that address
-#   5. Both halves at once
-#   6. How Palette drives this — the ComputePool path, and what is missing
-#   7. Who writes the host's configuration at fleet scale — the bootstrap path
-#   8. What is proven, and what is not
-#   9. Where this stands: stylus, the PRs, and what is open
-#  10. Teardown — verified return to the baseline
+#   THE STORY (1-7, shared verbatim with demo-palette.sh via beats-palette.sh)
+#   1. The edge hosts, in Palette
+#   2. What these hosts are — VMs we built, running our edge agent
+#   3. The tags, and where they came from — user-data written before registration
+#   4. Those tag values are VLANs EDA configured
+#   5. The designated interface, correctly configured on the VM
+#   6. The cluster on that host, and that Palette reports it Running
+#   7. Where the cluster's traffic actually goes
+#
+#   HOW IT WORKS (8-17)
+#   8. The fabric, and what "isolated" means here
+#   9. A GPU host resolved to its physical leaf port and attached
+#  10. Fail-closed behaviour — the failure mode that is silent
+#  11. The host side — the node IP, and the VIP contract being enforced
+#  12. Both halves at once
+#  13. How Palette drives this — the ComputePool path, and what is missing
+#  14. Who writes the host's configuration at fleet scale — the bootstrap path
+#  15. What is proven, and what is not
+#  16. Where this stands: stylus, the PRs, and what is open
+#  17. Teardown — verified return to the baseline
 #
 # CONFIG (export before running):
-#   EDA_KUBECONFIG   kubeconfig for the EDA cluster   (enables the live §2)
+#   EDA_KUBECONFIG   kubeconfig for the EDA cluster   (enables the live §9)
 #   EDA_FABRIC_NODE  fabric node name                 (default: lab-gpu-01)
-#   EDGE_IP          Palette edge host IP             (§4, §5, §7 host side)
+#   EDGE_IP          Palette edge host IP             (host-side pages: §5, §6, §11, §12, §14)
 #   FRISKET          path to the frisket module
-#   PALETTE_API_KEY  enables the live tag read in §4
+#   PALETTE_API_KEY  enables the live tag read in §3
 #   AUTO             0 (default) pause for Enter; 1 auto-advance
 #   TYPE             1 (default) typewriter on commands; 0 instant
 #
 # NOTE ON CORRECTNESS (load-bearing — do not "simplify"):
 #   * every `go test` runs with -count=1. Go replays cached results byte-for-byte,
 #     including t.Logf output, so a cached PASS is indistinguishable from a live
-#     run. The EDA transaction delta printed in §8 is the real proof of liveness.
-#   * §0 surveys and cleans before anything is claimed; §10 verifies the return to
+#     run. The EDA transaction delta printed in §15 is the real proof of liveness.
+#   * §0 surveys and cleans before anything is claimed; §17 verifies the return to
 #     baseline. lab-gpu-01 has exactly ONE cabled port, so without that the second
 #     run fails on port contention.
 #   * fabric objects are deleted BridgeInterface -> VirtualNetwork -> BridgeDomain.
@@ -48,6 +58,7 @@ ROOT_DIR="$(cd "$HERE/.." && pwd)"
 : "${EDGE_IP:=192.168.122.3}"
 : "${EDA_FABRIC_NODE:=lab-gpu-01}"
 : "${DEMO_HOST_UID:=lab-gpu-01}"
+: "${DEMO_CLUSTER:=${CLUSTER_NAME:-eda-iso-demo}}"
 : "${DEMO_MAC:=52:54:00:26:9a:5e}"
 : "${AUTO:=0}"; : "${TYPE:=1}"
 : "${PALETTE_API_KEY:=}"
@@ -254,14 +265,26 @@ if sshpass -p demo ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/nu
      'ip -brief addr show enp2s0.310' >/dev/null 2>&1; then
   good "edge host $EDGE_IP reachable, tenant VLAN up"
 else
-  note "edge host $EDGE_IP has no enp2s0.310 — sections 4 and 5 will be limited"
+  note "edge host $EDGE_IP has no enp2s0.310 — the host-side pages will be limited"
 fi
 pause || return
 }
 
-sec_1(){
+# The opening seven pages are the Palette-side story, shared verbatim with
+# demo-palette.sh so the two cannot drift. beat_N banners itself as "N · …",
+# which is why these map one-to-one onto sections 1-7 rather than being renamed.
+. "$HERE/beats-palette.sh"
+sec_1(){ beat_1; }
+sec_2(){ beat_2; }
+sec_3(){ beat_3; }
+sec_4(){ beat_4; }
+sec_5(){ beat_5; }
+sec_6(){ beat_6; }
+sec_7(){ beat_7; }
+
+sec_8(){
 # ---------------------------------------------------------------------------
-banner "1 · The fabric, and what \"isolated\" means here"
+banner "8 · The fabric, and what \"isolated\" means here"
 ctx "Isolation here is an EVPN construct, not a firewall rule: a MAC-VRF per tenant with its own EVI and route targets, so two tenants can carry identical address space without seeing each other."
 lede "A three-node SR Linux fabric — two leaves and a spine, onboarded and synced."
 run "kubectl --context $KCTX -n $NS get toponodes"
@@ -285,9 +308,9 @@ link "RFC 7432 — BGP MPLS-Based Ethernet VPN" "$RFC7432"
 pause || return
 }
 
-sec_2(){
+sec_9(){
 # ---------------------------------------------------------------------------
-banner "2 · A GPU host bound to its physical leaf port"
+banner "9 · A GPU host bound to its physical leaf port"
 ctx "EDA has no server-name-keyed API — nothing answers 'which port is host X on'. We close that by reverse-indexing the Day-0 cabling intent: edge TopoLinks whose remote.node names the host. This is the part Nokia reviewed, and the part we are changing."
 lede "Running the provider's reconcilers against the live fabric."
 if [ -z "${EDA_KUBECONFIG:-}" ]; then
@@ -341,9 +364,9 @@ link "RFC 8365 — Network Virtualization Overlay Solution Using EVPN" "$RFC8365
 pause || return
 }
 
-sec_3(){
+sec_10(){
 # ---------------------------------------------------------------------------
-banner "3 · Fail-closed behaviour"
+banner "10 · Fail-closed behaviour"
 ctx "Tenant isolation fails in a specific way: a host that is NOT attached looks identical to one that is healthy. Nothing errors and nothing alerts, so the design has to treat partial success as failure."
 lede "These tests run offline — they pass with the fabric switched off."
 gotest go test -count=1 ./internal/controller/eda/... -v 2>&1 \
@@ -362,9 +385,9 @@ link "RFC-0014 — the pluggable network-isolation provider slot" "$RFC0014"
 pause || return
 }
 
-sec_4(){
+sec_11(){
 # ---------------------------------------------------------------------------
-banner "4 · The host side — a VLAN raised from tags"
+banner "11 · The host side — a VLAN raised from tags"
 ctx "Isolation is established in cloud-init, before Kubernetes starts: the node IP and the CNI come up ON the isolated interface. Anything delivered after a cluster is healthy is too late to participate — which is why this is a provider rather than an add-on."
 lede "This host carries five isolation tags in Palette. Nobody has logged into it."
 run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'ip -d link show enp2s0.310 | head -3'"
@@ -415,9 +438,9 @@ link "stylus #6394 — aviz-* renamed net-iso-* so a second provider shares the 
 pause || return
 }
 
-sec_5(){
+sec_12(){
 # ---------------------------------------------------------------------------
-banner "5 · Both halves, at the same time"
+banner "12 · Both halves, at the same time"
 ctx "Each half has been shown separately. This is the same VLAN on the leaf port and on the host cabled to it, placed there by two subsystems with no knowledge of each other."
 bi="nokia-demo-pool-leaf1-ethernet-1-9"
 if ! k get bridgeinterface "$bi" >/dev/null 2>&1; then
@@ -453,9 +476,9 @@ link "SR Linux learn — EVPN in practice" "$SRL_LEARN"
 pause || return
 }
 
-sec_6(){
+sec_13(){
 # ---------------------------------------------------------------------------
-banner "6 · How Palette drives this — the ComputePool path"
+banner "13 · How Palette drives this — the ComputePool path"
 ctx "Everything so far drove the provider's CRs directly, because the EDA enum value is not merged upstream yet. This section shows the path a user actually takes, what it produces, and exactly which piece is still missing."
 lede "A user does not write EDA intent. They declare isolation on a ComputePool:"
 cat <<'YAML' | sed 's/^/    /'
@@ -493,9 +516,9 @@ link "#8946 — the attachment reconciler" "https://github.com/spectrocloud/mura
 pause || return
 }
 
-sec_7(){
+sec_14(){
 # ---------------------------------------------------------------------------
-banner "7 · Who writes the host's configuration, at fleet scale"
+banner "14 · Who writes the host's configuration, at fleet scale"
 ctx "Everything so far depended on the isolation values already being in /var/lib/spectro/userdata. On this host that file was written by hand, over SSH, before the agent first registered — honest for one machine, and exactly what a fleet breaks. Configuring a host's primary interface from a controller it reaches over that interface is circular. This is how the circle is broken."
 lede "Everything a booting host presents about itself — one value:"
 run "echo $DEMO_MAC"
@@ -520,7 +543,7 @@ if [ -n "$a" ] && [ "$a" = "$b" ]; then
   printf '%s\n' "$a" | sed 's/^ *//;s/^/      /'
   good "Identical. Derived from the fabric, not copied from the host."
 elif [ -z "$a" ]; then
-  note "The tenant is not on the fabric — section 5 creates it, and section 10 removes it."
+  note "The tenant is not on the fabric — section 12 creates it, and section 17 removes it."
 else
   bad "The two do not match."
 fi
@@ -547,9 +570,9 @@ link "The same ground in full — make demo-bootstrap" "$ROOT_DIR/scripts/demo-b
 pause || return
 }
 
-sec_8(){
+sec_15(){
 # ---------------------------------------------------------------------------
-banner "8 · What is proven, and what is not"
+banner "15 · What is proven, and what is not"
 TX1=$(txcount)
 ctx "Go replays cached test output byte-for-byte, so on-screen output alone cannot prove a run was live. The EDA transaction count can."
 lede "Transactions driven through EDA's engine during this session:"
@@ -573,9 +596,9 @@ link "Integration companion — §6, the full proven / not-proven table" "$COMPA
 pause || return
 }
 
-sec_9(){
+sec_16(){
 # ---------------------------------------------------------------------------
-banner "9 · Where this stands"
+banner "16 · Where this stands"
 ctx "Everything shown runs on code that is either merged or in review. This is the delivery picture, including what is still open and who it sits with."
 
 arc "THE STYLUS SIDE — merged"
@@ -628,9 +651,9 @@ link "#8946 — frisket: port attachment reconciler" "https://github.com/spectro
 pause || return
 }
 
-sec_10(){
+sec_17(){
 # ---------------------------------------------------------------------------
-banner "10 · Teardown"
+banner "17 · Teardown"
 ctx "This session created real fabric objects. lab-gpu-01 has one cabled port, so leaving an attachment behind would make the next run fail on contention. Teardown is part of the demonstration, not an afterthought."
 if [ "${TEARDOWN:-1}" = 0 ]; then
   note "TEARDOWN=0 — demo state left in place for inspection"
@@ -657,7 +680,7 @@ pause || return
 # ---------------------------------------------------------------------------
 # Default is the full run in numeric order. Override SECTIONS to change the cut;
 # `make demo-tyler` leads with the ComputePool path.
-SECTIONS="${SECTIONS:-0 1 2 3 4 5 6 7 8 9 10}"
+SECTIONS="${SECTIONS:-0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17}"
 
 title
 [ "$AUTO" = 1 ] || { printf '\n%s     [enter] begin%s  ' "$DIM" "$R"; read -r _; }
