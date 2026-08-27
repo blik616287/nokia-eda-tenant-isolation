@@ -34,7 +34,7 @@ ROOT_DIR="$(cd "$HERE/.." && pwd)"
 : "${PALETTE_API_KEY:=}"
 PALETTE="${PALETTE_ENDPOINT:-https://palette.example.com}"
 PROJECT="${PALETTE_PROJECT_UID:-<project-uid>}"
-COMPANION="https://claude.ai/code/artifact/8764dd23-0951-48b1-ab0a-312a3ebb3614"
+COMPANION="$ROOT_DIR/docs/companion.md"
 
 B=$'\e[1m'; DIM=$'\e[2m'; IT=$'\e[3m'; R=$'\e[0m'
 TEAL=$'\e[38;5;30m'; SAND=$'\e[38;5;179m'; GREY=$'\e[38;5;244m'

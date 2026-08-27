@@ -56,7 +56,7 @@ PALETTE="${PALETTE_ENDPOINT:-https://palette.example.com}"
 PROJECT="${PALETTE_PROJECT_UID:-<project-uid>}"
 
 # Reference material shown alongside the relevant sections.
-COMPANION="https://claude.ai/code/artifact/8764dd23-0951-48b1-ab0a-312a3ebb3614"
+COMPANION="$ROOT_DIR/docs/companion.md"
 EDA_DOCS="https://docs.eda.dev/"
 SRL_DOCS="https://documentation.nokia.com/srlinux/"
 SRL_LEARN="https://learn.srlinux.dev/"
@@ -315,7 +315,7 @@ note "switch side only, and we accept that. The reverse-index is being replaced 
 note "leaf port carried directly on the host record — RFC-0021 §4e. What is bound, and"
 note "how the fabric confirms it, is unchanged either way."
 echo
-link "Integration companion — §04.3, host-to-port resolution" "$COMPANION"
+link "Integration companion — §4.3, host-to-port resolution" "$COMPANION"
 link "RFC 8365 — Network Virtualization Overlay Solution Using EVPN" "$RFC8365"
 pause
 }
@@ -427,7 +427,7 @@ note "They agree because both derive from the same declared intent: the provider
 note "the host to its leaf port through the Day-0 cabling intent, and the agent resolved the"
 note "same host's tags into a local interface."
 echo
-link "Integration companion — §02, the two halves" "$COMPANION"
+link "Integration companion — §2, the two halves" "$COMPANION"
 link "SR Linux learn — EVPN in practice" "$SRL_LEARN"
 pause
 }
@@ -494,7 +494,7 @@ bad "NOT PROVEN — multi-rail hosts and pool scaling on real hardware."
 note "Modelled and tested in the reconciler, but not exercised against a DGX-class host"
 note "with several fabric-facing NICs, nor against a fabric with thousands of edge links."
 echo
-link "Integration companion — §06, the full proven / not-proven table" "$COMPANION"
+link "Integration companion — §6, the full proven / not-proven table" "$COMPANION"
 pause
 }
 
@@ -540,12 +540,12 @@ arc "OPEN"
 note "  ▸ forwarding-plane negative test                    — needs a Nokia licence"
 note "  ▸ multi-rail and pool scaling                       — needs GPU hardware"
 note "  ▸ confirmation of the findings in companion §07     — Nokia EDA engineering"
-note "  ▸ whether §04.3 is the intended resolution pattern  — Nokia EDA engineering"
+note "  ▸ whether §4.3 is the intended resolution pattern  — Nokia EDA engineering"
 note "  ▸ release sequencing for the four PRs above         — SpectroCloud"
 echo
 good "Nothing shown today depends on unmerged work to be true — only to ship."
 echo
-link "Integration companion — §01, the ask, and §07, the findings" "$COMPANION"
+link "Integration companion — §1, the ask, and §7, the findings" "$COMPANION"
 link "#8944 — hue-apis: EDA provider + CEL fix" "https://github.com/spectrocloud/mural/pull/8944"
 link "#9124 — hue: policy-step EDA case" "https://github.com/spectrocloud/mural/pull/9124"
 link "#8945 — frisket: EDA client + isolation unit" "https://github.com/spectrocloud/mural/pull/8945"
