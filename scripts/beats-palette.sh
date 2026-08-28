@@ -20,6 +20,27 @@ S(){ sshpass -p "${VM_PASSWORD:-demo}" ssh -o StrictHostKeyChecking=no -o UserKn
      -o LogLevel=ERROR -o ConnectTimeout=8 "${VM_USER:-demo}@$EDGE_IP" "$@"; }
 KC(){ S "sudo k3s kubectl $*"; }
 
+# Running the provider needs the module and the Go toolchain; both walkthroughs get
+# them the same way so beat 4 can act on the tag rather than describe it.
+: "${FRISKET:=$ROOT_DIR/../nokia/mural/frisket}"
+gotest(){ ( cd "$FRISKET" && GOTOOLCHAIN=go1.27.0 GOWORK=off \
+            GOPRIVATE='github.com/spectrocloud/*' DEMO_HOST_UID="$DEMO_HOST_UID" "$@" ); }
+
+# Create this host's tenant and bind its port, unless that is already done.
+# Returns 1 when it cannot (no module, no driver), so the caller can say so
+# rather than print a misleading absence.
+ensure_fabric_half(){
+  local bi="nokia-demo-pool-${DEMO_PORT:-leaf1-ethernet-1-9}"
+  k get bridgeinterface "$bi" >/dev/null 2>&1 && return 0
+  [ -f "$ROOT_DIR/testdata/act5-driver.gotest" ] && [ -d "$FRISKET" ] || return 1
+  local drv="$FRISKET/internal/smoke/zz_act5_driver_test.go" out rc
+  cp "$ROOT_DIR/testdata/act5-driver.gotest" "$drv" || return 1
+  out=$(gotest go test -count=1 -tags smoke ./internal/smoke/... -run TestAct5Persist -v -timeout 10m 2>&1); rc=$?
+  rm -f "$drv"
+  printf '%s\n' "$out" | grep -E "UNIT READY|BOUND |FABRIC CONFIRMS|PERSISTED" | sed 's/^ *//;s/^/    /' || true
+  return $rc
+}
+
 # Does the edge host answer at this address?
 edge_reachable(){ [ -n "${1:-}" ] && sshpass -p "${VM_PASSWORD:-demo}" ssh \
   -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
@@ -193,26 +214,8 @@ pause || return
 
 beat_4(){
 # ------------------------------------------------------------------
-banner "4 · What those tag values are, on the fabric"
-ctx "The tags are not free text — each names something on the Nokia fabric. Two different sets of objects appear below and they are worth keeping apart: the tenants that exist to demonstrate overlapping address space, and this host's own tenant, which is a different thing carrying a different VLAN."
-arc "THE BASELINE TENANTS — what isolation buys you"
-lede "Two tenants configured on the fabric, with identifiers EDA allocated:"
-run "kubectl --context $KCTX -n $NS get bridgedomains"
-note "VNI, EVI and route targets come from EDA's allocator — we read them back, never compute them"
-echo
-lede "Both answer at the same gateway address, on different bridge domains:"
-for t in tenant-a tenant-b; do
-  printf '    %s%-10s%s ' "$B" "$t" "$R"
-  k get virtualnetwork "$t" -o jsonpath='gateway={.spec.irbInterfaces[0].spec.ipAddresses[0].ipv4Address.ipPrefix}  bd={.spec.irbInterfaces[0].spec.bridgeDomain}' 2>/dev/null
-  echo
-done
-good "Overlapping tenant address space, separated by EVPN — the property this exists to provide."
-note "These two exist to show that property. They are NOT this host's tenant, and the"
-note "VLANs above are not the tag value. That is the next block, and it is a different"
-note "set of objects."
-echo
-
-arc "THIS HOST'S VLAN"
+banner "4 · Those tag values are VLANs EDA configured"
+ctx "The tags are not free text. Each one names something that has to exist on the Nokia fabric — a VLAN, and the tenant bridge domain carrying it. So rather than describe that, this page acts on the tag and then shows you the fabric."
 tagvlan=$(curl -sk -H "ApiKey: $PALETTE_API_KEY" -H "ProjectUid: $PROJECT" \
             "$PALETTE/v1/edgehosts?limit=30" 2>/dev/null | DEMO_HOST_UID="$DEMO_HOST_UID" python3 -c '
 import json,os,sys
@@ -223,31 +226,55 @@ try:
             print((i["metadata"].get("labels") or {}).get("net-iso-vlan","")); break
 except Exception: pass' 2>/dev/null)
 : "${tagvlan:=${NET_ISO_VLAN:-310}}"
-lede "The tag on the host record names VLAN $tagvlan. Every attachment the fabric holds:"
-run "kubectl --context $KCTX -n $NS get bridgeinterfaces -o custom-columns=INTERFACE:.metadata.name,BRIDGE-DOMAIN:.spec.bridgeDomain,PORT:.spec.interface,VLAN:.spec.vlanID,STATE:.status.operationalState"
+
+arc "ACTING ON THE TAG"
+lede "The host record names VLAN $tagvlan. Asking the fabric for that tenant now:"
+if k get bridgeinterface "nokia-demo-pool-${DEMO_PORT:-leaf1-ethernet-1-9}" >/dev/null 2>&1; then
+  note "already configured on the fabric earlier in this session — nothing to do"
+else
+  ensure_fabric_half || bad "The provider could not be run here — set FRISKET, or run make demo."
+fi
+note "Nothing there is precomputed. We name a tenant and a port; EDA allocates the"
+note "VNI, the EVI and the route targets and reports them back."
+note "origin= says which path was taken: Managed means we created the tenant, Adopted"
+note "means one already existed under that name and we took it over rather than making"
+note "a second. Both are supported deliberately — a fabric team may want to author"
+note "tenants itself and have PaletteAI attach hosts into them."
 echo
+
+arc "WHAT THE FABRIC HOLDS NOW"
+run "kubectl --context $KCTX -n $NS get bridgedomains"
+note "nokia-demo-bd is the one just created. tenant-a-bd and tenant-b-bd were already"
+note "here — they are the baseline this environment keeps, and they matter in a moment."
+echo
+lede "And the attachment on the port this host is cabled to:"
+run "kubectl --context $KCTX -n $NS get bridgeinterfaces -o custom-columns=INTERFACE:.metadata.name,BRIDGE-DOMAIN:.spec.bridgeDomain,PORT:.spec.interface,VLAN:.spec.vlanID,STATE:.status.operationalState"
 match=$(k get bridgeinterfaces -o jsonpath="{range .items[?(@.spec.vlanID=='$tagvlan')]}{.metadata.name} {.spec.interface} {.spec.bridgeDomain}{\"\n\"}{end}" 2>/dev/null | head -1)
 if [ -n "$match" ]; then
   set -- $match
-  good "VLAN $tagvlan is on the fabric: port $2, bridge domain $3."
-  good "That is the tag value from the host record, on the switch. Not a coincidence and"
-  good "not something we typed twice — the next pages show both ends of it."
+  good "VLAN $tagvlan on port $2, in bridge domain $3 — the tag value, on the switch."
 else
-  note "VLAN $tagvlan is NOT on the fabric yet, and in the full walkthrough that is"
-  note "deliberate: section 0 cleared this demo's own objects before anything was"
-  note "claimed, so you can watch the tenant being created and the port bound rather"
-  note "than take our word that they were already there."
-  note "Right now the tag is a statement of intent and nothing has acted on it. Section"
-  note "12 acts on it, and shows the same VLAN on the leaf port and on the machine at"
-  note "the same moment."
+  bad "VLAN $tagvlan is not on the fabric; the step above did not complete."
+fi
+if k get bridgeinterface standalone-on-populated-vn >/dev/null 2>&1; then
+  note "standalone-on-populated-vn is neither: baseline state from earlier verification,"
+  note "on a different port (leaf1-ethernet-1-7) in tenant-a. It is left in place so the"
+  note "clean-slate check can tell 'baseline' from 'left behind by the last run'."
 fi
 echo
-if k get bridgeinterface standalone-on-populated-vn >/dev/null 2>&1; then
-  note "standalone-on-populated-vn in the table above is neither: it is baseline state"
-  note "from earlier verification, on a different port (leaf1-ethernet-1-7) in tenant-a."
-  note "It is left in place deliberately, so the clean-slate check in section 0 has"
-  note "something to distinguish 'baseline' from 'left behind by the last run'."
-fi
+
+arc "WHY A TENANT IS WORTH ANYTHING"
+lede "The two baseline tenants both answer at the same gateway address:"
+for t in tenant-a tenant-b; do
+  printf '    %s%-10s%s ' "$B" "$t" "$R"
+  k get virtualnetwork "$t" -o jsonpath='gateway={.spec.irbInterfaces[0].spec.ipAddresses[0].ipv4Address.ipPrefix}  bd={.spec.irbInterfaces[0].spec.bridgeDomain}' 2>/dev/null
+  echo
+done
+good "Overlapping address space, separated by EVPN — the property this exists to provide."
+note "nokia-demo is a third tenant on the same three switches. It could carry those same"
+note "addresses as well and still never meet either of them. That is what the VLAN in"
+note "the tag actually bought: not a number on an interface, membership of a network"
+note "that other tenants cannot reach."
 pause || return
 }
 
@@ -257,10 +284,60 @@ banner "5 · The designated interface, on the VM"
 ctx "This is the host half. Nobody logged in and configured it; the agent read the tags and built it during cloud-init, before Kubernetes started."
 lede "The interface named by net-iso-interface, carrying the tagged VLAN:"
 run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'ip -d link show enp2s0.310 | head -3'"
-run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'ip -brief addr | grep -v \"^lo\"'"
+rssh 'ip -brief addr' \
+     'ip -brief addr | grep -vE "^(lo|cali|tunl)"'
+
 echo
 note "enp1s0 is the management path. enp2s0 has no address of its own."
 good "802.1Q VLAN 310 at 10.210.0.50/24 — exactly the tag values from section 3."
+echo
+note "Where that address came from is worth being precise about, because it is not"
+note "obvious: nothing on the fabric issued it. There is no DHCP here and no IPAM"
+note "exchange with EDA. The agent read net-iso-subnet-ipv4 off its own tags and"
+note "configured the interface itself. The address IS the tag."
+echo
+
+# The host half completes with no fabric involvement whatsoever, which means this
+# page can be entirely correct while the host is attached to nothing. Saying so is
+# the strongest version of the fail-closed argument, because the evidence is here.
+port=$(k get topolinks -o json 2>/dev/null | DEMO_HOST_UID="$DEMO_HOST_UID" python3 -c '
+import json,os,sys
+want=os.environ["DEMO_HOST_UID"]
+try:
+    for i in json.load(sys.stdin).get("items",[]):
+        for l in i["spec"].get("links",[]):
+            if l.get("type")=="edge" and (l.get("remote") or {}).get("node")==want:
+                print(l["local"]["interfaceResource"]); raise SystemExit
+except SystemExit: raise
+except Exception: pass' 2>/dev/null)
+if [ -n "$port" ]; then
+  bound=$(k get bridgeinterfaces -o jsonpath="{range .items[?(@.spec.interface=='$port')]}{.spec.bridgeDomain}{end}" 2>/dev/null)
+  if [ -n "$bound" ]; then
+    good "And the fabric agrees: $port is in $bound. Both halves are in place."
+    note "Worth one sentence on why we bothered checking, because it is the whole"
+    note "argument for how this is built: everything ABOVE this line would look exactly"
+    note "the same if the fabric half were missing. The agent takes the address from its"
+    note "own tags — no DHCP, no exchange with EDA — so the interface comes up, the node"
+    note "gets its address and a single-node cluster runs perfectly well while attached"
+    note "to nothing. A host that is not isolated is indistinguishable from one that is,"
+    note "from the host. That is why readiness is gated on the fabric's own answer, and"
+    note "why section 10 refuses to write anything at all rather than write half of it."
+  else
+    bad "AND RIGHT NOW, THIS HOST IS NOT ISOLATED."
+    note "$port — the port this machine is cabled to — is in no tenant bridge domain."
+    note "The host is tagging frames with VLAN 310 into a switch port that belongs to"
+    note "nobody. Everything above is still true and still correct, and it proves only"
+    note "the host half."
+    note "It keeps working because this is a single-node cluster: nothing needs to leave"
+    note "the machine. Add a second node and it would not."
+    echo
+    note "That is the failure this design is built around, and it is on your screen: a"
+    note "host that is not attached looks EXACTLY like one that is. No error, no alert,"
+    note "and the first person to find out is whoever should not have been able to reach"
+    note "it. Section 10 is the code that refuses to let this state be reached silently;"
+    note "section 12 puts the fabric half in and shows both ends of the same VLAN."
+  fi
+fi
 pause || return
 }
 

@@ -396,12 +396,13 @@ pause || return
 
 sec_11(){
 # ---------------------------------------------------------------------------
-banner "11 · The host side — a VLAN raised from tags"
+banner "11 · The host side — the node IP, and the VIP contract"
 ctx "The switch side is only half of it. The server has to put its own traffic on the matching VLAN, and it has to do that before Kubernetes starts, because the node's address and the pod network both come up on that interface. Anything delivered after the cluster is healthy has missed its moment. That timing is the whole reason this is built into the platform rather than installed onto a running cluster."
 note "In plain terms: the machine has to be on the right network before it is a"
 note "Kubernetes node at all, so this cannot be something you apply afterwards."
 
-lede "This host carries five isolation tags in Palette. Nobody has logged into it."
+lede "Pages 3 and 5 showed the tags and the interface they built. This is what those"
+lede "values then determined, which is the part that cannot be applied afterwards."
 run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'ip -d link show enp2s0.310 | head -3'"
 run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'ip -brief addr show enp2s0.310'"
 note "802.1Q id 310 carrying 10.210.0.50/24 — exactly the tag values."
