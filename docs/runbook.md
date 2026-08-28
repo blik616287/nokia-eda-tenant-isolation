@@ -1,6 +1,6 @@
 # EDA + PaletteAI — Live Demo Runbook
 
-The walkthrough is `make demo`: eighteen pages, one section per page, driven live against the
+The walkthrough is `make demo`: nineteen pages, one section per page, driven live against the
 fabric. `enter` advances, `p` goes back, `r` replays the current page, `g 12` jumps to section 12,
 `q` quits. `AUTO=1` advances on a timer and `TYPE=0` turns off the typewriter.
 
@@ -11,7 +11,7 @@ The pages fall into three groups:
 | 0 | Clean-slate check — the fabric is in a known state before anything is claimed |
 | 1-7 | **The story.** The host in Palette, what it is, its tags, the VLANs those tags name, the interface on the machine, the cluster, and where its traffic goes. Shared with `make demo-palette`. |
 | 8-14 | **How it works.** The fabric, host-to-port binding, fail-closed behaviour, the host side, both halves together, the ComputePool path, and the fleet-scale bootstrap question. |
-| 15-17 | Proven / not proven, delivery status and what is open, then teardown. |
+| 15-18 | Proven / not proven, delivery status, the two open disagreements, then teardown. |
 
 This document covers the five pages that carry the technical argument - sections 8 to 12 - because
 those are where a question can take you somewhere the screen does not go. The rest explains itself

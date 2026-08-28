@@ -136,17 +136,22 @@ asking you for.
 
 **16 · Where this stands**
 
-Nothing here was staged for today; it all runs on code that's either merged or in review. Two
-places we haven't agreed. The first is where a host's switch port is recorded — you told us
-topology intent is the wrong place, your own schema agrees, and we've changed it. The second
-is still open: who configures east/west on the host. As we understood it, your position is
-that an AI host needs both north/south and east/west configured. Ours is that node preparation
-leaves the rail NICs address-less on purpose and NV-IPAM assigns them per workload, so doing
-it in the agent would collide with the tooling that already owns it. Most of the surface isn't
-in dispute — every rail port has to be in the right tenant's VRF on the fabric, and that part
-is ours and already modelled. Please correct us if we have your position wrong.
+Nothing here was staged for today — it all runs on code that is either already merged or open in
+review. The stylus side is merged, the Palette side is in review, and what is still open is on the
+screen with whose desk it sits on.
 
-**17 · Teardown**
+**17 · Where we have not agreed**
+
+Two places. The first is where a host's switch port is recorded — you told us topology intent is the
+wrong place for it, your own schema agrees, and we have changed it. The second is still open: who
+configures east/west on the host. As we understood it, your position is that an AI host needs both
+north/south and east/west configured. Ours is that node preparation leaves the rail NICs
+address-less on purpose and NV-IPAM assigns them per workload, so doing it in the agent would
+collide with the tooling that already owns it. Most of the surface is not in dispute — every rail
+port has to be in the right tenant's VRF on the fabric, and that part is ours and already modelled.
+Please correct us if we have your position wrong.
+
+**18 · Teardown**
 
 This created real objects on a real fabric, so it removes them. There's a practical reason as
 well — this machine has one cabled port, and anything left behind would make the next run fail

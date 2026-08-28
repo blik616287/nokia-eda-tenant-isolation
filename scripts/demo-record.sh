@@ -27,7 +27,8 @@
 #  14. Who writes the host's configuration at fleet scale — the bootstrap path
 #  15. What is proven, and what is not
 #  16. Where this stands: stylus, the PRs, and what is open
-#  17. Teardown — verified return to the baseline
+#  17. Where we have not agreed — the two open questions
+#  18. Teardown — verified return to the baseline
 #
 # CONFIG (export before running):
 #   EDA_KUBECONFIG   kubeconfig for the EDA cluster   (enables the live §9)
@@ -42,7 +43,7 @@
 #   * every `go test` runs with -count=1. Go replays cached results byte-for-byte,
 #     including t.Logf output, so a cached PASS is indistinguishable from a live
 #     run. The EDA transaction delta printed in §15 is the real proof of liveness.
-#   * §0 surveys and cleans before anything is claimed; §17 verifies the return to
+#   * §0 surveys and cleans before anything is claimed; §18 verifies the return to
 #     baseline. lab-gpu-01 has exactly ONE cabled port, so without that the second
 #     run fails on port contention.
 #   * fabric objects are deleted BridgeInterface -> VirtualNetwork -> BridgeDomain.
@@ -134,7 +135,7 @@ txcount(){ kubectl --context "$KCTX" -n eda-system get transactionresults --no-h
 
 topology(){
   local W=30 i bar
-  local -a L=("EDA FABRIC — Nokia SR Linux" "leaf1 / leaf2  7220 IXR-D3L" "spine1         7220 IXR-D5" "tenant bridge domains (EVPN)")
+  local -a L=("EDA FABRIC - Nokia SR Linux" "leaf1 / leaf2  7220 IXR-D3L" "spine1         7220 IXR-D5" "tenant bridge domains (EVPN)")
   local -a Rt=("PALETTE EDGE HOST" "lab-gpu-01" "enp2s0  ->  enp2s0.310" "10.210.0.50/24")
   local -a M=("            " "  <======>  " "  VLAN 310  " "  <======>  ")
   printf -v bar '%*s' "$((W+2))" ''; bar=${bar// /=}
@@ -288,21 +289,24 @@ sec_8(){
 # ---------------------------------------------------------------------------
 banner "8 · The fabric, and what \"isolated\" means here"
 ctx "Isolation here is an EVPN construct, not a firewall rule: a MAC-VRF per tenant with its own EVI and route targets, so two tenants can carry identical address space without seeing each other."
-lede "A three-node SR Linux fabric — two leaves and a spine, onboarded and synced."
-run "kubectl --context $KCTX -n $NS get toponodes"
+# The fabric inventory is page 2's subject and is not repeated here. This page has
+# one job: show what a tenant IS, using the two that exist independently of this
+# demo, so the property is not being demonstrated with objects we just made.
 topology
-lede "Two tenants, each with identifiers allocated by EDA, not by us."
-run "kubectl --context $KCTX -n $NS get bridgedomains"
+lede "Two tenants that predate this demo, with identifiers allocated by EDA, not by us:"
+run "kubectl --context $KCTX -n $NS get bridgedomains tenant-a-bd tenant-b-bd -o custom-columns=TENANT:.metadata.name,VNI:.status.vni,EVI:.status.evi,ROUTE-TARGET:.status.importTarget,STATE:.status.operationalState"
 note "VNI, EVI and route targets come from EDA's allocator and are read back into status."
 note "If they were identical run to run, it would mean we were computing them."
 echo
-lede "Both tenants answer at the same gateway address, on different bridge domains:"
+lede "And both answer at the same gateway address, on different bridge domains:"
 for t in tenant-a tenant-b; do
   printf '    %s%-10s%s ' "$B" "$t" "$R"
   k get virtualnetwork "$t" -o jsonpath='gateway={.spec.irbInterfaces[0].spec.ipAddresses[0].ipv4Address.ipPrefix}  bd={.spec.irbInterfaces[0].spec.bridgeDomain}' 2>/dev/null
   echo
 done
 good "Overlapping tenant address space, separated by EVPN."
+note "This host's tenant, created back on page 4, is a third on the same three switches."
+note "It could carry those same addresses and still never meet either of them."
 echo
 link "EDA documentation" "$EDA_DOCS"
 link "SR Linux documentation" "$SRL_DOCS"
@@ -566,7 +570,7 @@ if [ -n "$a" ] && [ "$a" = "$b" ]; then
   printf '%s\n' "$a" | sed 's/^ *//;s/^/      /'
   good "Identical. Derived from the fabric, not copied from the host."
 elif [ -z "$a" ]; then
-  note "The tenant is not on the fabric — section 12 creates it, and section 17 removes it."
+  note "The tenant is not on the fabric — section 4 creates it, and section 18 removes it."
 else
   bad "The two do not match."
 fi
@@ -634,9 +638,6 @@ arc "THE STYLUS SIDE — merged"
 note "#6354  resolve the isolated fabric NIC by name, build the VLAN sub-interface"
 note "#6394  rename aviz-* tags to net-iso-*, so a second provider can share the path"
 good "#6394 is the change that makes an EDA provider possible without forking the agent."
-note "Operational note: a Palette instance declares the stylus version and the agent"
-note "reconciles down to it. Pinning a specific build needs stylus.skipStylusUpgrade: true"
-note "in the edge-host userdata, as a sibling of site:, not inside it."
 
 arc "THE PALETTE SIDE — in review"
 pr_live=0
@@ -659,9 +660,9 @@ fi
 note "8944 also closes an admission hole: the CEL rule was a per-provider equality, so an"
 note "EDA pool made both sides false and was admitted with no isolation reference at all."
 echo
-note "9124 exists because the policy step passed every non-Aviz provider through as"
-note "in-policy — widening the enum without it would have disabled governance for exactly"
-note "the provider being added to obtain a guarantee."
+note "9124 is the matching one: the policy step passed every non-Aviz provider through"
+note "as in-policy, so widening the enum without it would have disabled governance for"
+note "exactly the provider being added to obtain a guarantee."
 
 arc "OPEN"
 note "  ▸ forwarding-plane negative test                    — needs a Nokia licence"
@@ -670,10 +671,20 @@ note "  ▸ confirmation of the findings in companion §7      — Nokia EDA eng
 note "  ▸ release sequencing for the four PRs above         — SpectroCloud"
 echo
 
-arc "TWO PLACES WE HAVE NOT AGREED"
-note "Raising these rather than smoothing them over, because both change what gets"
-note "built, and they are cheaper to settle in this room than during an integration."
+good "Nothing shown today depends on unmerged work to be true — only to ship."
 echo
+link "Integration companion — §1, the ask, and §7, the findings" "$COMPANION#1-the-ask-up-front"
+link "#8944 — hue-apis: EDA provider + CEL fix" "https://github.com/spectrocloud/mural/pull/8944"
+link "#9124 — hue: policy-step EDA case" "https://github.com/spectrocloud/mural/pull/9124"
+link "#8945 — frisket: EDA client + isolation unit" "https://github.com/spectrocloud/mural/pull/8945"
+link "#8946 — frisket: port attachment reconciler" "https://github.com/spectrocloud/mural/pull/8946"
+pause || return
+}
+
+sec_17(){
+# ---------------------------------------------------------------------------
+banner "17 · Where we have not agreed"
+ctx "Two of these, and raising them rather than smoothing them over: both change what gets built, and both are cheaper to settle in this room than during an integration."
 good "SETTLED, IN YOUR FAVOUR — where a host's switch port is recorded."
 note "We were populating remote.node on an edge TopoLink purely as a lookup key. You"
 note "told us that is not what an edge link is for, and your own schema says the same:"
@@ -703,30 +714,19 @@ good "per port, and it is what this demo has been showing you all along."
 note "So the open question is narrower than it first sounds: does anything need to"
 note "configure rail interfaces ON THE HOST beyond that, and if so, whose job is it?"
 echo
-note "The same question returns for storage, with the sign reversed — and here sites"
-note "differ from each other more than either of us differs from the other. One hoster"
-note "runs a single shared multi-tenant storage environment where every customer needs"
-note "addresses that do NOT overlap. That is the opposite of the property this whole"
-note "demo relies on. The fabric side already handles it: two attachment requests give"
-note "two BridgeInterfaces on one port with different VLAN IDs, ordinary sub-interface"
-note "trunking, nothing to change. The host-side tag contract carries exactly one"
-note "interface, so that half is not expressible yet."
+note "Storage is the same question with the sign reversed: a shared multi-tenant storage"
+note "VLAN needs addresses that do NOT overlap, the opposite of the property this demo"
+note "relies on. The fabric side already handles a host on two networks; the host-side"
+note "tag contract carries exactly one interface, so that half is not expressible yet."
 echo
 link "Integration companion — §5.1, scope, and §5.2, networks beyond the tenant VLAN" "$COMPANION#51-what-we-configure-and-what-we-deliberately-do-not"
 echo
-good "Nothing shown today depends on unmerged work to be true — only to ship."
-echo
-link "Integration companion — §1, the ask, and §7, the findings" "$COMPANION#1-the-ask-up-front"
-link "#8944 — hue-apis: EDA provider + CEL fix" "https://github.com/spectrocloud/mural/pull/8944"
-link "#9124 — hue: policy-step EDA case" "https://github.com/spectrocloud/mural/pull/9124"
-link "#8945 — frisket: EDA client + isolation unit" "https://github.com/spectrocloud/mural/pull/8945"
-link "#8946 — frisket: port attachment reconciler" "https://github.com/spectrocloud/mural/pull/8946"
 pause || return
 }
 
-sec_17(){
+sec_18(){
 # ---------------------------------------------------------------------------
-banner "17 · Teardown"
+banner "18 · Teardown"
 ctx "This session created real objects on a real fabric, so it has to remove them. There is a practical reason as well as a tidy one: this server has exactly one cabled port, and an attachment left behind would make the next run fail over it. Putting the fabric back is part of the demonstration — a change you cannot cleanly reverse is not one you should be making automatically."
 note "In plain terms: we are showing you the undo, because a system that only knows"
 note "how to create things is not finished."
@@ -756,7 +756,7 @@ pause || return
 # ---------------------------------------------------------------------------
 # Default is the full run in numeric order. Override SECTIONS to change the cut;
 # `make demo-tyler` leads with the ComputePool path.
-SECTIONS="${SECTIONS:-0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17}"
+SECTIONS="${SECTIONS:-0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18}"
 
 title
 [ "$AUTO" = 1 ] || { printf '\n%s     [enter] begin%s  ' "$DIM" "$R"; read -r _; }

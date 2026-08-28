@@ -41,7 +41,7 @@ Three cuts of the same evidence, all live against the same environment:
 
 | Target | What it is |
 |---|---|
-| `make demo` | Eighteen pages: the story, then how it works, then what is open. |
+| `make demo` | Nineteen pages: the story, then how it works, then what is open. |
 | `make demo-tyler` | The same sections in a shorter order, led by the ComputePool path. |
 | `make demo-palette` | The story alone — pages 1–7 — for a Palette-weighted room. |
 | `make demo-bootstrap` | Section 14 on its own: who writes a host's configuration at fleet scale. |
@@ -119,7 +119,7 @@ fails in a way that looks like a cluster still coming up.
 
 | Path | Purpose |
 |---|---|
-| `scripts/demo-record.sh` | The walkthrough. Eighteen pages, live against the fabric, tears its own state down. |
+| `scripts/demo-record.sh` | The walkthrough. Nineteen pages, live against the fabric, tears its own state down. |
 | `scripts/beats-palette.sh` | Pages 1–7 and the shared helpers, sourced by both walkthroughs so they cannot drift. |
 | `scripts/demo-palette.sh` | `make demo-palette` — the story on its own, ten pages, for a Palette-weighted room. |
 | `scripts/demo-bootstrap.sh` | The bootstrap dependency: a host boots knowing only its MAC and is served its isolation values. |
