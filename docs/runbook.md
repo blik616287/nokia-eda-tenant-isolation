@@ -66,8 +66,10 @@ fails *every subsequent EDA transaction*, not just its own, while the fabric oth
 healthy. `make clean` and page 18 both do it correctly; by hand, follow that order.
 
 For what to say on each page, see [run-sheet.md](run-sheet.md) — this document is the
-operational half, that one is the spoken half. [transcript.md](transcript.md) is a complete
-recorded run, if you want to see the output without a fabric in front of you.
+operational half, that one is the spoken half. [transcript.md](transcript.md) and
+[transcript-fabric.md](transcript-fabric.md) are complete recorded runs, if you want to see the
+output without a fabric in front of you, and [talking-points.md](talking-points.md) carries the
+context that is not on any page.
 
 ---
 

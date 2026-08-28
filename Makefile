@@ -127,9 +127,11 @@ demo-bootstrap:
 # Liveness proof: a cached Go test replays byte-for-byte, so output alone proves
 # nothing. EDA transactions do not lie — a live run moves this counter.
 verify:
-	@echo "EDA transactions recorded: $$(kubectl --context $(KCTX) -n eda-system \
-	  get transactionresults --no-headers 2>/dev/null | wc -l)"
-	@echo "(run 'make demo' and compare — a live run adds ~8)"
+	@echo "highest EDA transaction id: $$(kubectl --context $(KCTX) -n eda-system \
+	  get transactionresults --no-headers 2>/dev/null | awk '{print $$1}' | tr -dc '0-9\n' \
+	  | sort -n | tail -1)"
+	@echo "(run 'make demo' and compare — a live run advances it. Counting ROWS does"
+	@echo " not work: EDA caps the list at 500, so the count saturates and reads flat.)"
 	@kubectl --context $(KCTX) -n eda-system get transactionresults --no-headers 2>/dev/null | tail -4
 
 # ------------------------------------------------------------------ clean

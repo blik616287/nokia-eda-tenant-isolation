@@ -140,7 +140,14 @@ run_masked(){ local shown="$1" real="$2"; printf '\n%s  $ %s' "$B" "$R"
 k(){ kubectl --context "$KCTX" -n "$NS" "$@"; }
 gotest(){ ( cd "$FRISKET" && GOTOOLCHAIN=go1.27.0 GOWORK=off \
             GOPRIVATE='github.com/spectrocloud/*' DEMO_HOST_UID="$DEMO_HOST_UID" "$@" ); }
-txcount(){ kubectl --context "$KCTX" -n eda-system get transactionresults --no-headers 2>/dev/null | wc -l; }
+# The HIGHEST transaction id, not the number of rows. EDA caps transactionresults
+# at 500, so once a fabric has been used a while the row count saturates and the
+# delta reads zero -- the liveness check reporting "nothing ran" while the fabric
+# is visibly being driven. Ids only ever increase, so they cannot saturate.
+# awk forces decimal: the ids are zero-padded, and bash reads a leading-zero
+# number as octal, where 000000648 is not a valid literal at all.
+txcount(){ kubectl --context "$KCTX" -n eda-system get transactionresults --no-headers 2>/dev/null \
+  | awk '{print $1}' | tr -dc '0-9\n' | sort -n | tail -1 | awk '{printf "%d\n", $1}' | grep . || echo 0; }
 
 topology(){
   local W=30 i bar
@@ -821,9 +828,12 @@ arc "THE TWO THINGS THAT HAD TO BE TRUE"
 note "Neither was obvious from the schema, so both were checked against this fabric."
 echo
 note "1. A network does not need a gateway. RoCE wants layer 2 with no routing, so the"
-note "   East-West plane needs a bridge domain and no IRB. We created exactly that:"
-note "   EDA accepted it and allocated a full EVPN segment — vni=204 evi=104"
-note "   rt=target:1:104 — with zero IRB interfaces anywhere on the fabric."
+note "   East-West plane needs a bridge domain and no IRB. The schema allows it —"
+run "kubectl --context $KCTX get crd virtualnetworks.services.eda.nokia.com -o jsonpath='{.spec.versions[?(@.name==\"v2\")].schema.openAPIV3Schema.properties.spec.required}{\"\n\"}' | sed 's/^\$/(none)/' | sed 's/^/   required fields on VirtualNetwork.spec: /'"
+note "   — nothing is required, so a tenant may carry bridge domains and no IRB at all."
+note "   Confirmed by doing it: EDA accepted such a VirtualNetwork and allocated it a"
+note "   full EVPN segment, its own VNI, EVI and route target, with no gateway created"
+note "   anywhere on the fabric. The identifiers differ every time, which is the point."
 echo
 note "2. One port can belong to several networks at once. Two attachment requests give"
 note "   two bridge interfaces on the same physical port at different VLAN IDs. The"
