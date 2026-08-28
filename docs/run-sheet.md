@@ -79,6 +79,17 @@ imports whose routes, and these two don't import each other's, so neither can le
 addresses at all. It isn't a filter on traffic; the routes are never exchanged. Your node is in the
 first one, and nothing in the second can reach it even though both are using the same address.
 
+**19 · The EDA objects, and how planes map onto them**
+
+Five kinds do all of this, and only two are ideas you have to hold: a bridge domain is a network,
+and a bridge interface is one port's membership of one network. So a plane is just a bridge domain,
+and a host joining a plane is one bridge interface — four planes on one cabled port is four bridge
+interfaces at four VLAN IDs, which is ordinary sub-interface trunking and nothing new for us. Two
+things had to be true for that and neither was obvious from the schema, so we checked both on this
+fabric: a network does not need a gateway, which is what RoCE wants, and one port can belong to
+several networks at once. What is not settled is which plane a given VLAN belongs to — a bridge
+domain does not know it is the East-West one, so that mapping has to be told to us.
+
 **9 · A GPU host bound to its physical leaf port**
 
 To put a server into a tenant, something has to know which switch port it's plugged into.

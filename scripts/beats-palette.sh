@@ -355,6 +355,11 @@ run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDG
 node_ip=$(KC 'get nodes -o jsonpath="{.items[0].status.addresses[?(@.type==\"InternalIP\")].address}"' 2>/dev/null)
 if [ "$node_ip" = "10.210.0.50" ]; then
   good "The node's InternalIP is 10.210.0.50 — the isolated address, not the management one."
+    echo
+    note "RFC-0022 revisits this. It proposes the node take its identity from a management"
+    note "NIC, leaving this interface carrying the North-South plane instead. The host keeps"
+    note "both addresses either way — what changes is which one Kubernetes calls its own."
+
 elif [ -n "$node_ip" ]; then
   bad "node InternalIP is $node_ip, expected 10.210.0.50"
 else
@@ -398,6 +403,10 @@ note "where pod traffic skips the tunnel and takes a different path."
 echo
 note "Which is why a second tenant could run the identical pod CIDR on the same leaf"
 note "and still not reach this one. The separation is the bridge domain, not the addressing."
+echo
+note "RFC-0022 revisits this. It proposes the node take its identity from a management"
+note "NIC, leaving this interface carrying the North-South plane instead. The host keeps"
+note "both addresses either way — what changes is which one Kubernetes calls its own."
 echo
 bad "Stated precisely: this shows egress, not isolation. It proves packets LEAVE on the"
 bad "tenant VLAN. It does not prove another tenant cannot receive them — that needs the"

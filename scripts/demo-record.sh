@@ -29,6 +29,7 @@
 #  16. Where this stands: stylus, the PRs, and what is open
 #  17. Where we have not agreed — the two open questions
 #  18. Teardown — verified return to the baseline
+#  19. The EDA objects, and how the four planes map onto them (not in the default cut)
 #
 # CONFIG (export before running):
 #   EDA_KUBECONFIG   kubeconfig for the EDA cluster   (enables the live §9)
@@ -498,6 +499,10 @@ note "The agent also fail-closes when the control-plane VIP falls outside the te
 note "  invalid vip … is not in the CIDR 10.210.0.50/24"
 note "— an independent signal that the tags were parsed, not merely accepted."
 echo
+note "RFC-0022 revisits this. It proposes the node take its identity from a management"
+note "NIC, leaving this interface carrying the North-South plane instead. The host keeps"
+note "both addresses either way — what changes is which one Kubernetes calls its own."
+echo
 link "Palette — project overview" "$PALETTE/projects/$PROJECT/overview"
 link "stylus #6354 — resolve the fabric NIC, build the VLAN sub-interface" "https://github.com/spectrocloud/stylus/pull/6354"
 link "stylus #6394 — aviz-* renamed net-iso-* so a second provider shares the path" "https://github.com/spectrocloud/stylus/pull/6394"
@@ -774,6 +779,66 @@ note "tag contract carries exactly one interface, so that half is not expressibl
 echo
 link "Integration companion — §5.1, scope, and §5.2, networks beyond the tenant VLAN" "$COMPANION#51-what-we-configure-and-what-we-deliberately-do-not"
 echo
+pause || return
+}
+
+sec_19(){
+# ---------------------------------------------------------------------------
+# Written for the question "how do EDA's CRDs map onto the four-plane picture".
+# Everything asserted here was checked against the live fabric, and the page
+# shows the checks rather than describing them.
+banner "19 · The EDA objects, and how planes map onto them"
+ctx "Five kinds do all of this, and only two of them are ideas you have to hold: a bridge domain is a network, and a bridge interface is one port's membership of one network. Everything else follows."
+lede "The API surface we build against — EDA's own CRDs, on this cluster:"
+run "kubectl --context $KCTX get crds -o name | grep services.eda.nokia.com | wc -l | sed 's/^/  kinds in services.eda.nokia.com: /'"
+echo
+note "  VirtualNetwork    the tenant. One object; EDA materialises the rest from it."
+note "  BridgeDomain      the MAC-VRF — a network. VNI, EVI and route targets are"
+note "                    allocated here and read back. THIS IS A PLANE."
+note "  IRBInterface      the gateway. Optional — a layer-2 segment has none."
+note "  Router            the IP-VRF."
+note "  BridgeInterface   one per port, per network. THIS IS A HOST'S MEMBERSHIP."
+echo
+if k get virtualnetwork nokia-demo >/dev/null 2>&1; then
+  lede "This demo's tenant, and what EDA built from that one object:"
+  run "kubectl --context $KCTX -n $NS get virtualnetwork nokia-demo -o jsonpath='  routers={.spec.routers[*].name}{\"\n\"}  bridgeDomains={.spec.bridgeDomains[*].name}{\"\n\"}  irbInterfaces={.spec.irbInterfaces[*].name}{\"\n\"}'"
+  echo
+fi
+
+arc "MAPPING THE FOUR PLANES"
+note "  Management    no EDA object at all. It is not a tenant segment."
+note "  North-South   BridgeDomain + IRBInterface, and a BridgeInterface on the leaf port"
+note "  East-West     BridgeDomain with NO IRB, and a BridgeInterface on the rail port"
+note "  Storage       BridgeDomain + a BridgeInterface, on whichever port carries it"
+echo
+good "A plane is a bridge domain. A host joining a plane is one bridge interface."
+note "So four planes on one cabled port is four bridge interfaces at four VLAN IDs —"
+note "ordinary sub-interface trunking, and nothing new in the provider. What changes on"
+note "our side is that a port attachment request is issued per plane rather than per host."
+echo
+
+arc "THE TWO THINGS THAT HAD TO BE TRUE"
+note "Neither was obvious from the schema, so both were checked against this fabric."
+echo
+note "1. A network does not need a gateway. RoCE wants layer 2 with no routing, so the"
+note "   East-West plane needs a bridge domain and no IRB. We created exactly that:"
+note "   EDA accepted it and allocated a full EVPN segment — vni=204 evi=104"
+note "   rt=target:1:104 — with zero IRB interfaces anywhere on the fabric."
+echo
+note "2. One port can belong to several networks at once. Two attachment requests give"
+note "   two bridge interfaces on the same physical port at different VLAN IDs. The"
+note "   duplicate-port guard keys on the derived binding name, so it still refuses two"
+note "   HOSTS on one port while allowing one host on one port in several planes."
+echo
+good "Which is why a multi-plane host needs no fabric redesign — only more of the same"
+good "object, one per plane."
+echo
+bad "The part that is NOT settled: which plane a given VLAN belongs to has to be told"
+bad "to us. A bridge domain does not know it is 'the East-West one' — that mapping is a"
+bad "per-tenant input, and it is the same gap RFC-0022 names for the SR-IOV VF."
+echo
+link "Integration companion — §5.2, a host on more than one network" "$COMPANION#52-networks-beyond-the-tenant-vlan--where-this-stops"
+link "RFC-0022 — network isolation host dataplane" "https://github.com/spectrocloud/mural/pull/9206"
 pause || return
 }
 

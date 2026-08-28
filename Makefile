@@ -8,6 +8,7 @@
 #   make demo-tyler  same evidence, led by the ComputePool path (Palette cut)
 #   make demo-palette  the Palette-side flow: hosts, tags, VLAN, cluster, pods
 #   make demo-bootstrap  the bootstrap dependency, and the boot-time path that closes it
+#   make demo-fabric   the cut that makes no claim RFC-0022 revisits (drops 6, 7, 11)
 #   make verify   prove the last demo run was live, not cached
 #   make clean    tear down demo fabric state
 #   make destroy  clean, plus remove the VM and its Palette records
@@ -24,10 +25,10 @@ EDGE_HOST ?= lab-gpu-01
 EDGE_IP ?= $(shell cat $(ROOT)/.work/edge-ip 2>/dev/null)
 
 .DEFAULT_GOAL := help
-.PHONY: help profile deps agent host demo demo-tyler demo-palette demo-bootstrap verify clean destroy env
+.PHONY: help profile deps agent host demo demo-tyler demo-palette demo-bootstrap demo-fabric verify clean destroy env
 
 help:
-	@sed -n 's/^#   //p' $(MAKEFILE_LIST) | head -14
+	@sed -n 's/^#   //p' $(MAKEFILE_LIST) | head -15
 	@echo ""
 	@echo "Start here:  cp .env.example .env  &&  \$$EDITOR .env  &&  make deps"
 
@@ -92,6 +93,13 @@ demo:
 # sections that back it up. Section 1 (fabric internals) is dropped; every other
 # section runs, and the numbering is unchanged, so cross-references still hold.
 DEMO_TYLER_SECTIONS ?= 0 1 2 3 4 5 6 7 13 9 12 10 14 15 16 17 18
+
+# The cut that makes no claim RFC-0022 revisits. Pages 6, 7 and 11 are the only
+# ones that say Kubernetes took its identity from the tenant VLAN; RFC-0022 moves
+# node-IP and the primary CNI to management and leaves that interface carrying the
+# North-South plane instead. Everything else -- the fabric, the CRDs, tenancy,
+# fail-closed, the ComputePool path -- is unchanged by that proposal.
+DEMO_FABRIC_SECTIONS ?= 0 1 2 3 4 5 8 19 9 10 12 13 14 15 16 17 18
 demo-tyler:
 	@test -n "$(EDGE_IP)" || { echo "EDGE_IP unset — run 'make host', or export EDGE_IP=<addr>"; exit 1; }
 	@EDGE_IP=$(EDGE_IP) FRISKET=$(FRISKET) SECTIONS="$(DEMO_TYLER_SECTIONS)" \
@@ -100,6 +108,11 @@ demo-tyler:
 # Tyler's running order for a mixed Palette/Nokia room: start from the platform's
 # own edge-host list and work outward to the fabric, rather than starting at the
 # fabric. Same environment, different story.
+demo-fabric:
+	@test -n "$(EDGE_IP)" || true
+	@EDGE_IP=$(EDGE_IP) FRISKET=$(FRISKET) SECTIONS="$(DEMO_FABRIC_SECTIONS)" \
+	  bash $(ROOT)/scripts/demo-record.sh
+
 demo-palette:
 	@test -n "$(EDGE_IP)" || { echo "EDGE_IP unset — run 'make host', or export EDGE_IP=<addr>"; exit 1; }
 	@EDGE_IP=$(EDGE_IP) FRISKET=$(FRISKET) bash $(ROOT)/scripts/demo-palette.sh
