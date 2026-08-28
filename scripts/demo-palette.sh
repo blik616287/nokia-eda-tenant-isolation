@@ -46,9 +46,16 @@ banner(){ local t="$1"; local pad=$(( 58 - ${#t} )); [ "$pad" -lt 0 ] && pad=0
   printf '\n%s%s╔══════════════════════════════════════════════════════════════╗%s\n' "$B" "$TEAL" "$R"
   printf '%s%s║  %s%*s  ║%s\n' "$B" "$TEAL" "$t" "$pad" "" "$R"
   printf '%s%s╚══════════════════════════════════════════════════════════════╝%s\n' "$B" "$TEAL" "$R"; }
-lede(){ printf '%s%s  %s%s\n' "$IT" "$SAND" "$1" "$R"; }
-note(){ printf '%s     %s%s\n' "$GREY" "$1" "$R"; }
-ctx(){  printf '%s  ▐ WHY%s  %s%s%s\n' "$B$BLUE" "$R" "$IT$GREY" "$1" "$R"; }
+lede(){ wrapped "  " "$IT$SAND" "$1"; }
+note(){ wrapped "     " "$GREY" "$1"; }
+# Wrap on spaces at a fixed width, wide enough that hand-wrapped lines pass
+# through untouched. Without this the terminal breaks long prose mid-word at
+# whatever column the window happens to be.
+: "${COLS:=92}"
+wrapped(){ local pre="$1" col="$2" line
+  printf '%s\n' "$3" | fold -s -w "$COLS" | while IFS= read -r line; do
+    printf '%s%s%s%s\n' "$col" "$pre" "${line% }" "$R"; done; }
+ctx(){  printf '%s  ▐ WHY%s\n' "$B$BLUE" "$R"; wrapped "     " "$IT$GREY" "$1"; }
 good(){ printf '%s     ✓ %s%s\n' "$GREEN" "$1" "$R"; }
 bad(){  printf '%s     ✗ %s%s\n' "$RED" "$1" "$R"; }
 link(){ printf '    %s▸ %s%s\n      %s%s%s\n' "$B" "$1" "$R" "$BLUE" "$2" "$R"; }

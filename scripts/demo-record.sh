@@ -87,9 +87,17 @@ banner(){ local t="$1"; local pad=$(( 58 - ${#t} )); [ "$pad" -lt 0 ] && pad=0
           printf '\n%s%s╔══════════════════════════════════════════════════════════════╗%s\n' "$B" "$TEAL" "$R"
           printf '%s%s║  %s%*s  ║%s\n' "$B" "$TEAL" "$t" "$pad" "" "$R"
           printf '%s%s╚══════════════════════════════════════════════════════════════╝%s\n' "$B" "$TEAL" "$R"; }
-lede(){ printf '%s%s  %s%s\n' "$IT" "$SAND" "$1" "$R"; }
-note(){ printf '%s     %s%s\n' "$GREY" "$1" "$R"; }
-ctx(){  printf '%s  ▐ WHY%s  %s%s%s\n' "$B$BLUE" "$R" "$IT$GREY" "$1" "$R"; }
+lede(){ wrapped "  " "$IT$SAND" "$1"; }
+note(){ wrapped "     " "$GREY" "$1"; }
+# Wrap on spaces at a fixed width. Long strings were being hard-wrapped by the
+# terminal at whatever column the window happened to be, breaking words in half.
+# Wide enough that the hand-wrapped lines (longest is 88 chars) pass through
+# untouched, so only genuinely long prose -- the WHY paragraphs -- gets folded.
+: "${COLS:=92}"
+wrapped(){ local pre="$1" col="$2" line
+  printf '%s\n' "$3" | fold -s -w "$COLS" | while IFS= read -r line; do
+    printf '%s%s%s%s\n' "$col" "$pre" "${line% }" "$R"; done; }
+ctx(){  printf '%s  ▐ WHY%s\n' "$B$BLUE" "$R"; wrapped "     " "$IT$GREY" "$1"; }
 good(){ printf '%s     ✓ %s%s\n' "$GREEN" "$1" "$R"; }
 bad(){  printf '%s     ✗ %s%s\n' "$RED" "$1" "$R"; }
 link(){ printf '    %s▸ %s%s\n      %s%s%s\n' "$B" "$1" "$R" "$BLUE" "$2" "$R"; }
@@ -354,6 +362,24 @@ for i in json.load(sys.stdin)['items']:
     for l in i['spec'].get('links',[]):
         if l.get('type')=='edge' and (l.get('remote') or {}).get('node'):
             print(l['local']['node'], l['local']['interfaceResource'], '->', l['remote']['node'])\""
+elif k get bridgeinterfaces -o jsonpath='{range .items[*]}{.spec.interface} {.metadata.name}{"\n"}{end}' 2>/dev/null \
+       | grep -q "^${DEMO_PORT:-leaf1-ethernet-1-9} nokia-demo"; then
+  # lab-gpu-01 has exactly ONE cabled port, and page 4 has already put it in this
+  # host's tenant. The conformance suite binds the same port under a throwaway name,
+  # which the fabric correctly refuses -- two bridge interfaces, one port, same VLAN.
+  # So show the resolution and the binding that exists rather than fighting for it.
+  note "This host's port is already in its tenant, from page 4. It has exactly one cabled"
+  note "port, so rather than bind it twice, here is the resolution that produced it and"
+  note "the fabric's own confirmation of the result."
+  echo
+  run "kubectl --context $KCTX -n $NS get topolinks -o json | python3 -c \"
+import json,sys
+for i in json.load(sys.stdin)['items']:
+    for l in i['spec'].get('links',[]):
+        if l.get('type')=='edge' and (l.get('remote') or {}).get('node'):
+            print(' ', l['remote']['node'], '->', l['local']['node'], l['local']['interfaceResource'])\""
+  echo
+  run "kubectl --context $KCTX -n $NS get bridgedomain nokia-demo-bd -o jsonpath='FABRIC CONFIRMS  subifs={.status.numSubinterfaces}  nodes={.status.numNodes}  state={.status.operationalState}{\"\n\"}'"
 else
   note "What follows is the provider's conformance suite driven against this fabric. It"
   note "creates a throwaway tenant (rc-smoke-*), binds a host to a leaf port, asks the"
