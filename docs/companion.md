@@ -131,9 +131,10 @@ route target into status. Supports **adopt** (an operator-authored VN already ex
 One per ComputePool. Creates one `BridgeInterface` per leaf port, on the subnet's VLAN.
 
 The request originally carried a host identity and resolved it to a port, which is §4.3 below and
-the part being replaced: under RFC-0021 §4e it carries the **port itself**, taken from the Palette
-host record. What gets written to the fabric is unchanged; what disappears is the resolution step
-and its dependency on topology intent.
+the part being replaced. We proposed carrying the **port itself**, taken from the Palette host
+record. Agreed on 28 August: it goes further — EDA holds the server-to-port mapping and we send
+**server names and a tenant**, so no port crosses the boundary at all (§9). What gets written to the
+fabric is unchanged; what disappears is the resolution step and everything it depended on.
 
 ### 4.3 Host to leaf port resolution (**the part we are replacing**)
 
@@ -336,7 +337,7 @@ all of them.
 | Fail-closed on unresolvable hosts, duplicate ports, partial binds | **Proven** by test, each verified to fail when removed |
 | Host raises the matching VLAN from Palette tags | **Proven** |
 | Kubernetes runs on the isolated address | **Proven** |
-| **Traffic cannot cross between tenants** | **NOT proven** — needs `SIMULATE=false` + licence |
+| **Traffic cannot cross between tenants** | **NOT proven** — but now scheduled: Nokia offered to extend the demonstration to real endpoints, 28 Aug |
 | Multi-rail hosts, pool scaling on real hardware | **NOT proven** — needs hardware |
 | Per-host configuration derived at boot rather than authored | **Demonstrated** — identity in, configuration out, live from the fabric |
 | Fleet-scale bootstrap over PXE / out-of-band transport | **NOT proven** — the shape is shown over HTTP; the channel is not, see §5.1 |
@@ -480,47 +481,42 @@ against a fabric with thousands of edge links.
 
 ---
 
-## 9. The inventory contract we would consume
+## 9. The inventory contract — settled, and not as we proposed
 
-You offered host → switch-port mapping from EDA, either static inventory or LLDP discovery. This is
-what we would call and what we would do with each field, written as a proposal so you can correct it
-rather than guess at our needs.
+**Agreed 28 August 2026.** This section previously proposed that Nokia hand us a host-to-port
+mapping, which we would consume and turn into `BridgeInterface.spec.interface`. That is not the
+outcome. The mapping stays with EDA, and we never see a port.
 
-**What we need, per host:**
+Kevin Reeuwijk put the shape, from how other fabric vendors already work:
 
-| Field | Why we need it | Consequence if absent |
-|---|---|---|
-| host identifier | join key back to our compute inventory | cannot correlate at all |
-| leaf switch + interface (e.g. `leaf1`, `ethernet-1-9`) | becomes `BridgeInterface.spec.interface` | the host cannot be attached |
-| all interfaces for that host, not just one | an HGX-class host has eight rails; every one must land in the tenant's VRF | a missed rail is a silent data-plane leak |
-| whether the mapping was **discovered** or **declared** | we would treat a stale LLDP entry differently from an operator-declared one | we cannot reason about staleness |
-| last-seen / observed-at, for discovered entries | decide whether to trust a mapping for a host that has been down | we would have to trust it blindly |
+> On your side, you need to have the concept of a server that you can map the ports that that server
+> is connected to, so that all that we need to ask you is which servers need to be assigned to a
+> particular tenant.
 
-**What we do not need from you:** subnet, VLAN ID or mask. Those come from the tenant's isolation
-unit on our side — the VLAN is a property of which tenant the pool belongs to, not of the cabling.
-If you would rather own subnet allocation as well, that is a larger conversation and worth having
-explicitly (§8) rather than by implication.
+Wim Henderickx accepted it, and described what EDA has:
 
-**Two properties that matter more than the schema.** First, we fail closed: a host we cannot map
-fails the *entire* pool request with no fabric write, so a partial or silently-empty response is
-safer than a guessed one — please prefer an error to an empty list. Second, we would poll this on
-reconcile rather than cache it, so a mapping that changes when a machine is re-cabled should be
-reflected without us being told.
+> You tell us which servers you assigned, and then we do the plumbing.
+>
+> We don't have exactly a concept of a server, but we have this mapping — it's like a host, we call
+> it. You need to abuse that to actually map to a server. […] Yeah, we have the LLDP mapping.
 
-**A cheaper variant we could not verify.** LLDP can carry VLAN in the IEEE 802.1 TLVs, and a
-colleague reports having used that in production: if the API returns a tenant's VLAN ID, the host
-could find its own fabric-facing NIC by matching it, and neither side would need a hostname-to-port
-table. We are flagging it rather than proposing it, because on this fabric we could not confirm it —
-no LLDP neighbour state is exposed on `interfacestate`, the only LLDP resource is a UI overlay, and a
-colleague on the other provider could not get it working either. **Does SR Linux advertise the 802.1
-VLAN TLVs, and is that neighbour state readable through the API?** If yes, this contract gets much
-smaller.
+**So the contract inverts.** We send a server identity and a tenant. EDA resolves which leaf ports
+that implies. This is better than what we asked for, and for a reason worth stating: a server
+presents several ports — two, or two-by-four, for north/south, and commonly eight single ports for
+east/west — and only the fabric knows how they are cabled. A mapping handed to us would have been a
+copy of the truth; this way there is one.
 
-**Until it exists**, the leaf port is supplied on the attachment request from our own inventory
-(§7.4). That keeps us unblocked and is the static-inventory case in your own framing; the API
-replaces the hand-maintained half of it.
+**What we still owe.** The server identity has to be stable and meaningful to both sides. Ours is
+the Palette edge-host UID, which is stable across reboots and re-provisions. Nokia's side is the
+object Wim describes as "like a host"; whether that is extended or a server concept is added is
+his to propose.
 
----
+**Open, and owned by Nokia.** Wim is returning with the flow and the APIs. Saad recorded the likely
+shape as an API or CRD change to accept "these are the hosts we want in tenant A".
+
+**What has not changed.** Fail-closed still applies and moves with the resolution: a server EDA
+cannot map must fail the entire request rather than attach part of it. Prefer an error to an empty
+list — a silently partial answer is the failure mode this integration is least able to detect.
 
 ## 10. Reference
 

@@ -168,7 +168,7 @@ delete by hand, do it in that order.
 | Fail-closed on unresolvable hosts, duplicate ports, partial binds | **Proven** — each test verified to fail when the behaviour is removed |
 | Host raises the matching VLAN from tags | **Proven** |
 | Kubernetes runs on the isolated address | **Proven** |
-| **Traffic cannot cross between tenants** | **Not proven** — needs `SIMULATE=false` and a licence |
+| **Traffic cannot cross between tenants** | **Not proven** — Nokia offered to extend the demonstration to real endpoints (28 Aug); until then it needs `SIMULATE=false` and a licence |
 | Multi-rail hosts; pool scaling on real hardware | **Not proven** — needs hardware |
 | Per-host configuration derived at boot rather than authored | **Demonstrated** — over HTTP, not over PXE or out-of-band |
 | Fleet-scale bootstrap over PXE / out-of-band transport | **Not proven** — the shape is shown, the channel is not |

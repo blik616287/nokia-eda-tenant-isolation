@@ -120,7 +120,7 @@ ctx "Nothing per-host is authored anywhere. Identity comes from inventory, the t
 run "./scripts/provision-endpoint.py --once $DEMO_MAC --explain"
 echo
 note "Two of those lines are ours to change and we have said so: the cabling read is"
-note "replaced by the leaf port carried on the host record (RFC-0021 §4e), and the pool"
+note "replaced by EDA resolving the port from the server name (agreed 28 August), and the pool"
 note "to tenant mapping is what the ComputePool watcher will own (RFC-0021 item 13)."
 pause || return
 }

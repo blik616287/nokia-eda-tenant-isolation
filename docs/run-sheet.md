@@ -101,7 +101,7 @@ To put a server into a tenant, something has to know which switch port it's plug
 There's no API for that question, and the reason is reasonable — EDA models the fabric, and a
 GPU server isn't part of the fabric. So we read the cabling records backwards. It works, and
 it's the part Nokia reviewed and told us was the wrong place to keep that record. We agree,
-and we've changed it: the port moves onto the host record instead.
+and we've changed it — and on 28 August it moved further: EDA holds the server-to-port mapping and we just send server names and a tenant, so no port crosses the boundary at all.
 
 **10 · Fail-closed behaviour**
 

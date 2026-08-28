@@ -421,10 +421,14 @@ note "committed. An API success therefore proves the intent was recorded, not th
 note "port was moved. Readiness is gated on the bridge domain's numSubinterfaces — a"
 note "field the live CRDs and the documentation disagree about, and the CRDs win."
 echo
-note "On the resolution above: your review is that an edge TopoLink should describe the"
-note "switch side only, and we accept that. The reverse-index is being replaced by the"
-note "leaf port carried directly on the host record — RFC-0021 §4e. What is bound, and"
-note "how the fabric confirms it, is unchanged either way."
+note "On the resolution above, and this moved again on 28 August. Your review was that an"
+note "edge TopoLink should describe the switch side only, and we accepted that — our next"
+note "step was to carry the leaf port on the Palette host record instead."
+note "The meeting went further, and in your favour: EDA holds the server-to-port mapping,"
+note "and we send server names and a tenant. \"You tell us which servers you assigned, and"
+note "then we do the plumbing.\" So the resolution below is not moving to our side; it is"
+note "leaving our side entirely. Wim is coming back with the flow and the APIs."
+note "What is bound, and how the fabric confirms it, is unchanged either way."
 echo
 link "Integration companion — §4.3, host-to-port resolution" "$COMPANION#43-host-to-leaf-port-resolution-the-part-we-are-replacing"
 link "RFC 8365 — Network Virtualization Overlay Solution Using EVPN" "$RFC8365"
@@ -619,7 +623,8 @@ lede "What it is served, derived live from the fabric:"
 run_masked "./scripts/provision-endpoint.py --once $DEMO_MAC --explain" \
            "$HERE/provision-endpoint.py --once $DEMO_MAC --explain"
 note "Nothing per-host is authored. Two of those lines are ours to change and we have"
-note "said so: the cabling read becomes the leaf port on the host record (RFC-0021 §4e),"
+note "said so: the cabling read goes away entirely — EDA resolves the port from the server"
+note "name (agreed 28 August),"
 note "and pool-to-tenant is what the ComputePool watcher will own (RFC-0021 item 13)."
 echo
 lede "Against the values actually on the running host:"
@@ -677,7 +682,11 @@ echo
 bad "NOT PROVEN — forwarding-plane isolation."
 note "Demonstrating that traffic genuinely cannot cross between tenants needs real"
 note "endpoints, which needs SIMULATE=false and a licence. That is a licensing question"
-note "rather than a technical blocker, and it is the first item on our ask."
+note "rather than a technical blocker, and it was the first item on our ask."
+note "It now has a path. On 28 August Qasim offered to extend this: two containers on the"
+note "fabric, a tunnel between them over EVPN VXLAN, and end-to-end connectivity across"
+note "two machines in one tenant — with the negative case against a second tenant. That"
+note "closes the one row this table cannot close on its own."
 echo
 bad "NOT PROVEN — multi-rail hosts and pool scaling on real hardware."
 note "Modelled and tested in the reconciler, but not exercised against a DGX-class host"
@@ -759,8 +768,13 @@ note "    \"Creating a link with only A specified will create an edge interface.
 echo
 note "The empty remote.interfaceResource was the tell — there is no fabric object on"
 note "that side, because a GPU server is not a TopoNode. We were reading topology"
-note "intent as a server inventory. It has been changed: the leaf port moves onto the"
-note "Palette host record and the provider takes it directly. RFC-0021 §4e."
+note "intent as a server inventory."
+echo
+note "Settled further on 28 August, and further in your favour than we proposed. We were"
+note "going to carry the leaf port on the Palette host record; the agreement is that EDA"
+note "holds the server-to-port mapping and we send server names and a tenant. No port"
+note "crosses the boundary at all. RFC-0021 §4e is superseded by that, and Wim is coming"
+note "back with the flow and which APIs."
 echo
 bad "STILL OPEN — who configures east/west on the host."
 note "Your position, as we understood it from the sync — please correct this if we"

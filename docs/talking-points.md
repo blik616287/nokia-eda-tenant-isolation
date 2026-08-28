@@ -53,6 +53,30 @@ Two things had to be true for that, and neither was obvious from the schema:
 host side: *"the mapping from `vniId` → the selected NIC/VF/VLAN is a required per-tenant input, it
 is not implied by the `CIDRPool` alone."* Found independently, which is worth saying.
 
+## Settled on 28 August
+
+**Where a host's switch port is recorded — settled, in Nokia's favour, further than we proposed.**
+We were going to carry the leaf port on the Palette host record. Kevin put the better shape and Wim
+took it: EDA holds the server-to-port mapping, we send server names and a tenant, and no port
+crosses the boundary. *"You tell us which servers you assigned, and then we do the plumbing."* Wim is
+returning with the flow and the APIs; Saad expects an API or CRD change to accept "these are the
+hosts we want in tenant A".
+
+**East-West addressing has a concrete design.** Nokia produces an addressing plan for the whole
+infrastructure as if it were one cluster — unique per NIC per host. We load it into NV-IPAM and
+reuse it per tenant; a VRF per customer means every tenant can hold the same addresses. Wim's open
+question is whether the address is assigned before or after the tenant is known, because
+pre-assigning has a security smell.
+
+**The forwarding-plane test has a path.** Qasim offered to extend the demonstration: two containers,
+a tunnel over EVPN VXLAN, end-to-end connectivity between machines in one tenant. That is the one
+row our proven/not-proven table cannot close on its own.
+
+**Still open between us, not with Nokia:** pre-map hosts to a tenant, or map on the fly. Saad wants
+on-the-fly for elasticity; Tyler wants pre-mapping for reservations and noisy neighbours. Wim's
+middle: a node should not be selectable unless its network is up, but the tenant mapping can come
+later.
+
 ## Three questions worth asking
 
 **Does Phase 1 apply to existing clusters, or new ones only?** It moves the node IP, which on a live

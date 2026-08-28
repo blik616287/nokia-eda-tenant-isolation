@@ -56,9 +56,11 @@ Verified on the live fabric: an edge `TopoLink` accepts a `remote.node` naming a
 
 **Superseded.** It works, and it is not what should ship. Nokia's review — supported by their own
 schema, which says an edge link specifies the local side only — is that the server-to-port record
-does not belong in EDA topology intent. It moves to the Palette host record, and the provider takes
-the leaf port directly (RFC-0021 §4e). Everything else in this section stands: what is bound, and
-how the fabric confirms it, is unchanged.
+does not belong in EDA topology intent. We proposed moving it to the Palette host record; on
+28 August the integration meeting settled it further, and in Nokia's favour: **EDA holds the
+server-to-port mapping** and PaletteAI sends server names and a tenant, so no port crosses the
+boundary at all (RFC-0021 §4g). Everything else in this section stands: what is bound, and how the
+fabric confirms it, is unchanged.
 
 ### 3.4 Safety properties
 
