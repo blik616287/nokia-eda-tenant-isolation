@@ -130,6 +130,7 @@ fails in a way that looks like a cluster still coming up.
 | `scripts/fetch-agent.sh` | Pulls and verifies the pinned agent build. |
 | `testdata/act5-driver.gotest` | Drives the provider's reconcilers so fabric state persists for the side-by-side comparison. |
 | `docs/companion.md` | Written for Nokia EDA engineers: architecture, findings, and the ask. |
+| `docs/transcript.md` | A complete recorded run — the terminal output of all nineteen pages. |
 | `docs/run-sheet.md` | One or two sentences to say per page, for presenting at pace. |
 | `docs/runbook.md` | Rationale, expected output, and what to say when something is not up. |
 | `docs/verification-summary.md` | Two-page summary of what was verified and how. |

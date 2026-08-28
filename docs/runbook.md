@@ -40,190 +40,34 @@ argument on its own. `g 10` jumps straight to it.
 
 ---
 
-## Section 8 — The fabric, and what "isolated" actually means
+## What each page does to the fabric
 
-**Rationale.** Nokia's audience will want to know we understand EVPN, not just that we called an API. This act shows we are provisioning real IP-VRF/MAC-VRF constructs and reading back the identifiers EDA allocated.
+Most pages only read. These four write, and it is worth knowing which, because they are
+the ones that take time and the ones a failure would leave state behind from.
 
-```bash
-kubectl --context kind-eda-demo -n eda get toponodes
-```
+| Page | Writes | Leaves behind |
+|---|---|---|
+| 0 | Deletes anything a previous run left | Nothing — that is its job |
+| 4 | Creates `nokia-demo` + its bridge domain, binds `leaf1-ethernet-1-9` at VLAN 310 | The host's tenant, until page 18 |
+| 8 | Clones that tenant into `nokia-neighbour` at the **same** gateway address | A second tenant, until page 18 |
+| 9 | Nothing, when page 4 already holds the port | — |
+| 18 | Deletes both, bridge interface → virtual network → bridge domain | Verified baseline |
 
-*Expect:* 2 leaves + 1 spine, `Connected` / `Synced`.
+Pages 4 and 8 each take roughly a minute, because they are genuinely driving the fabric
+rather than describing it. That silence is expected; the driver prints as it goes.
 
-> "Three-node SR Linux fabric. Everything after this is against that, not a mock."
+**`lab-gpu-01` has exactly one cabled port.** Two attachments on it, even at the same VLAN,
+fail the transaction and retry. This is why page 9 checks whether page 4 already holds the
+port instead of binding it a second time, and why page 18 is not optional.
 
-```bash
-kubectl --context kind-eda-demo -n eda get bridgedomains
-```
+**Deletion order is load-bearing.** Always BridgeInterface → VirtualNetwork → BridgeDomain.
+Delete a `VirtualNetwork` while one of its bridge interfaces still exists and the orphan
+fails *every subsequent EDA transaction*, not just its own, while the fabric otherwise looks
+healthy. `make clean` and page 18 both do it correctly; by hand, follow that order.
 
-*Expect:*
-
-```
-NAME          VNI   EVI   IMPORT TARGET   EXPORT TARGET   TOTAL SUBIF   OPERATIONALSTATE
-tenant-a-bd   200   100   target:1:100    target:1:100    3             Up
-tenant-b-bd   201   101   target:1:101    target:1:101    2             Up
-```
-
-**The line to say:** *"Two tenants. Distinct VNI, distinct EVI, distinct route targets. We did not compute any of those — EDA's allocator did, and we read them back."*
-
-### The punchline
-
-```bash
-for t in tenant-a tenant-b; do
-  printf '%-10s ' "$t"
-  kubectl --context kind-eda-demo -n eda get virtualnetwork $t \
-    -o jsonpath='gateway={.spec.irbInterfaces[0].spec.ipAddresses[0].ipv4Address.ipPrefix} bd={.spec.irbInterfaces[0].spec.bridgeDomain}{"\n"}'
-done
-```
-
-*Expect:* **both** tenants at `10.200.0.1/24`, on different bridge domains.
-
-> "Same gateway address in both tenants. Overlapping address space, separated by EVPN. That is the property the whole feature exists to provide — and it is on the fabric right now, not on a slide."
-
-**If asked "is traffic actually isolated?"** — answer straight: *the control plane is proven, the forwarding plane needs real endpoints, which needs `SIMULATE=false` and a licence.* Do not fudge this; it is the one claim we cannot make yet, and saying so buys credibility for everything else.
-
----
-
-## Section 9 — A GPU host bound to a leaf port
-
-**Rationale.** This is the part with no Aviz equivalent, and it is worth explaining *why* it was hard: EDA has no server-name-keyed API. Nothing answers "which port is host X on".
-
-**And it is the part being replaced.** Nokia reviewed the reverse-index and said an edge `TopoLink`
-should describe the switch side only — their schema agrees, and so do we. The leaf port moves onto
-the host record instead (RFC-0021 §4e). What gets bound, and how the fabric confirms it, does not
-change. Say this before it is raised; the demo does the same on section 9.
-
-Section 9 runs this for you. To drive it directly, `FRISKET` is the provider module (`.env` sets it;
-it defaults to a sibling checkout):
-
-```bash
-cd "$FRISKET"
-go test -count=1 -tags smoke ./internal/smoke/... -run TestReconcilersAgainstLiveCluster -v \
-  2>&1 | grep -E "UNIT READY|BOUND|FABRIC CONFIRMS|PASS"
-```
-
-`-count=1` is not optional: Go replays a cached result byte-for-byte, its timing included, so a
-cached PASS is indistinguishable from a live run on screen.
-
-*Expect (numbers vary run to run — EDA allocates them):*
-
-```
-UNIT READY     origin=Managed bd=rc-smoke-bd vni=206 evi=106 rt=target:1:106
-BOUND          host=edge-host-uid-1 node=lab-gpu-01 leaf=leaf1 iface=leaf1-ethernet-1-9 vlan=310 state=Up
-FABRIC CONFIRMS subifs=1 down=0 nodes=1 state=Up
---- PASS: TestReconcilersAgainstLiveCluster
-```
-
-**Walk the three lines — this is the heart of the demo:**
-
-1. **UNIT READY** — a tenant VPC created and realised. The VNI/EVI/RT came back from the fabric.
-2. **BOUND** — we resolved a Palette host to a physical leaf port and attached it. We closed that mapping by reverse-indexing the Day-0 cabling intent: edge `TopoLink`s whose `remote.node` names the host.
-3. **FABRIC CONFIRMS** — *"and this line is the bridge domain independently reporting the new sub-interface. That is the fabric agreeing with us, not us reporting our own write back to ourselves."*
-
-That distinction is the one to land. EDA accepts a `BridgeInterface` long before the transaction programming it commits, so an API success proves nothing on its own.
-
----
-
-## Section 10 — Fail-closed, and why it is the important part
-
-**Rationale.** Tenant isolation fails in a specific and nasty way: a host that is *not* attached looks exactly like a healthy one. Nothing errors. This act shows we designed for that.
-
-```bash
-go test ./internal/controller/eda/... -v 2>&1 | grep -E "^    --- PASS" | sed 's/^    --- //'
-```
-
-*Point at these four:*
-
-```
-PASS: host_with_no_fabric_node_fails_the_whole_request_and_writes_nothing
-PASS: fabric_node_matching_no_topolink_is_unmapped
-PASS: two_hosts_claiming_one_port_fails_without_writing
-PASS: Attached_only_once_every_binding_is_operational
-```
-
-> "If any host in a pool cannot be resolved, we fail the entire request and write *nothing* to the fabric. Attaching the ones we could resolve would leave the pool partly isolated while reporting success. The test asserts the fabric is untouched afterwards — it is not just a return code."
-
-**Worth mentioning if there is appetite:** a multi-rail host must have *every* rail bound. Missing one is a real data-plane leak that nothing downstream would catch.
-
-### Optional: prove the tests have teeth
-
-If someone is sceptical that green tests mean anything:
-
-> "Each of those was verified by removing the behaviour and confirming the test fails. Dropping the fail-closed guard, gating readiness on the write succeeding, and skipping the shrink pass all break the suite."
-
----
-
-## Section 11 — Host-side VLAN
-
-**Status: proven** on 25 Aug 2026, edge host `lab-gpu-01` (`192.168.122.171`), stylus agent-mode **v4.9.39-rc.4**.
-
-**Rationale.** Acts 1–3 are all fabric-side. This is the other half: a host tagged through Palette bringing up the matching tenant interface by itself.
-
-```bash
-sshpass -p demo ssh demo@192.168.122.171 'ip -d link show enp2s0.310; ip -brief addr show enp2s0.310'
-```
-
-*Expect:*
-
-```
-enp2s0.310@enp2s0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP
-    vlan protocol 802.1Q id 310 <REORDER_HDR>
-enp2s0.310@enp2s0  UP  10.210.0.50/24
-```
-
-> "Nobody configured that interface. The host carries five `net-iso-*` tags in Palette. The agent read them and created an 802.1Q sub-interface, VLAN 310, at 10.210.0.50/24 — the exact values in the tags — on a NIC that had no address at all."
-
-### The punchline — and the strongest slide in the deck
-
-```bash
-sshpass -p demo ssh demo@192.168.122.171 \
-  'sudo grep -o "\"node-ip\":\[[^]]*\]" /etc/rancher/k3s/config.yaml.d/*.yaml | head -1'
-```
-
-*Expect:* `"node-ip":["10.210.0.50"]`
-
-> "Kubernetes is coming up **on the isolated VLAN address**, not the management IP. That is the entire architectural argument in one line: isolation is established before Kubernetes starts. A profile bundle is delivered only after a cluster is already healthy, so it could never do this."
-
-**Reproducing it.** The one non-obvious step is `stylus.skipStylusUpgrade: true` in the edge-host userdata, as a **sibling of `site:`**, not inside it. Without it the agent reconciles its own version down to whatever the Palette instance declares (4.8.20 here), which predates the `net-iso-*` tags and ignores them silently. The VIP must also sit inside the tenant CIDR — the agent fail-closes with `invalid vip ... is not in the CIDR 10.210.0.50/24`, which is worth showing if anyone doubts the tags are really being read.
-
-**If the interface is not up,** say: *"The fabric half programs the leaf port — you have just seen it. The host half is verified separately."* That is still true and beats a failed live command.
-
----
-
-## Section 12 — Both halves, at the same time
-
-**Status: proven** 25 Aug 2026. This is the closing shot: the *same VLAN* on the leaf port and on the host cabled to it, each put there by a different half of the system.
-
-```bash
-# Fabric side — the provider programmed the leaf port
-kubectl --context kind-eda-demo -n eda get bridgeinterface nokia-demo-pool-leaf1-ethernet-1-9 \
-  -o jsonpath='{.spec.interface} vlan={.spec.vlanID} bd={.spec.bridgeDomain}{"\n"}'
-
-# Host side — stylus raised the matching interface from its Palette tags
-sshpass -p demo ssh demo@192.168.122.171 'ip -brief addr show enp2s0.310'
-```
-
-*Expect:*
-
-```
-leaf1-ethernet-1-9 vlan=310 bd=nokia-demo-bd
-enp2s0.310@enp2s0  UP  10.210.0.50/24
-```
-
-> "Left: the fabric. We resolved this GPU host to a physical leaf port and put VLAN 310 on it, in a bridge domain with its own VNI, EVI and route target. Right: the host. Nobody logged in — the agent read five tags from Palette and raised the matching 802.1Q interface, inside that subnet, on a NIC that had no address at all."
->
-> "Neither half knows about the other. They agree because they were both derived from the same intent."
-
-Worth adding, because it is the part that could not be done any other way:
-
-```bash
-sshpass -p demo ssh demo@192.168.122.171 \
-  'sudo grep -o "\"node-ip\":\[[^]]*\]" /etc/rancher/k3s/config.yaml.d/*.yaml | head -1'
-```
-
-> "And Kubernetes came up *on* that isolated address. Not the management IP. That is why this has to be a provider and not bundle content — content is delivered after a cluster is healthy, and by then this decision is long made."
-
-**The honest boundary.** This is control-plane and host-configuration proof. It does not yet demonstrate that traffic cannot cross between tenants — that needs `SIMULATE=false` and a licence. Say so before being asked.
+For what to say on each page, see [run-sheet.md](run-sheet.md) — this document is the
+operational half, that one is the spoken half. [transcript.md](transcript.md) is a complete
+recorded run, if you want to see the output without a fabric in front of you.
 
 ---
 
@@ -249,6 +93,11 @@ Every schema came from the live 26.4.3 API rather than the documentation, after 
 ## If something breaks live
 
 - **Fabric unreachable** → section 10 is fully offline and makes the strongest engineering argument on its own.
-- **Smoke test fails** → it needs `EDA_KUBECONFIG` and `EDA_FABRIC_NODE`; check those before blaming the fabric. `kubectl get bridgedomains` is the quick discriminator.
+- **A page that writes hangs** → almost always two attachments on the one cabled port. Check
+  `kubectl --context kind-eda-demo -n eda get bridgeinterfaces` for two rows on
+  `leaf1-ethernet-1-9`, and the last few `transactionresults` for `Failed … retry`. Remove the
+  one that is not `nokia-demo-*`, in dependency order.
+- **Smoke test fails** → it needs `EDA_KUBECONFIG` and `EDA_FABRIC_NODE`; check those before
+  blaming the fabric. `kubectl get bridgedomains` is the quick discriminator.
 - **Numbers differ from this document** → expected and worth saying so. VNI/EVI are allocated per run by EDA. If they were identical every time, that would mean we were computing them, which is the bug we avoided.
-- **Asked something you do not know** → "I would have to check" beats a guess in front of a vendor. Everything in Acts 1–3 is reproducible on the spot.
+- **Asked something you do not know** → "I would have to check" beats a guess in front of a vendor. Everything on pages 8 to 10 is reproducible on the spot.

@@ -194,7 +194,12 @@ beat_3(){
 banner "3 · The tags, and where they came from"
 ctx "The tags are not applied after the fact. They are written into the host's user-data before it ever registers, because the agent snapshots them at registration and never re-reads them."
 lede "The user-data that was placed on the host before first boot:"
-run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'sudo sed -n \"/^stylus:/,/^install:/p\" /var/lib/spectro/userdata | head -20'"
+# The edge registration token lives three lines into this file. It is a credential
+# and this output goes on a projector in front of another company, so it is masked
+# here rather than trusted not to matter. Everything else on the page is the point.
+rssh 'sudo sed -n "/^stylus:/,/^install:/p" /var/lib/spectro/userdata' \
+     'sudo sed -n "/^stylus:/,/^install:/p" /var/lib/spectro/userdata | head -20 | sed "s/\(edgeHostToken:\).*/\1 <redacted for this walkthrough>/"'
+
 echo
 lede "And the same values, now as tags on the host in Palette:"
 if [ -n "$PALETTE_API_KEY" ]; then
