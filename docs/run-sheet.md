@@ -47,10 +47,12 @@ this machine is cabled to: VLAN 310, in its own bridge domain.
 
 **5 · The designated interface, on the VM**
 
-Nobody logged into this box. The agent read the tags and built this interface during
-cloud-init, before Kubernetes existed on it. Worth being precise about where the address came
-from, because it isn't obvious — nothing on the fabric issued it. There's no DHCP and no
-exchange with EDA. The agent took the address off its own tags. The address is the tag.
+Nobody logged into this box — the agent read the tags and built this interface during cloud-init,
+before the cluster existed. Worth being precise about where the address came from, because it isn't
+obvious: nothing on the fabric issued it. There's no DHCP and no exchange with EDA. The agent took
+the address off its own tags. The address is the tag. Under RFC-0022 this interface becomes the
+North-South plane rather than the one the node binds to — either way it's built here, from tags, by
+the agent.
 
 **6 · The cluster on that host**
 

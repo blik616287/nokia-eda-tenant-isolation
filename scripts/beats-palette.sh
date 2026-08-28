@@ -266,7 +266,7 @@ pause || return
 beat_5(){
 # ------------------------------------------------------------------
 banner "5 · The designated interface, on the VM"
-ctx "This is the host half. Nobody logged in and configured it; the agent read the tags and built it during cloud-init, before Kubernetes started."
+ctx "This is the host half. Nobody logged in and configured it: the agent read the tags and built this interface during cloud-init, before the cluster existed. Under RFC-0022 this becomes the North-South plane rather than the interface the node binds to — either way it is built here, from tags, by the agent."
 lede "The interface named by net-iso-interface, carrying the tagged VLAN:"
 run "sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@$EDGE_IP 'ip -d link show enp2s0.310 | head -3'"
 rssh 'ip -brief addr' \
@@ -302,19 +302,19 @@ if [ -n "$port" ]; then
     note "Worth one sentence on why we bothered checking, because it is the whole"
     note "argument for how this is built: everything ABOVE this line would look exactly"
     note "the same if the fabric half were missing. The agent takes the address from its"
-    note "own tags — no DHCP, no exchange with EDA — so the interface comes up, the node"
-    note "gets its address and a single-node cluster runs perfectly well while attached"
-    note "to nothing. A host that is not isolated is indistinguishable from one that is,"
-    note "from the host. That is why readiness is gated on the fabric's own answer, and"
-    note "why section 10 refuses to write anything at all rather than write half of it."
+    note "own tags — no DHCP, no exchange with EDA — so this interface comes up and"
+    note "carries VLAN 310 whether or not the fabric has ever been told about it. A host"
+    note "that is not isolated is indistinguishable from one that is, seen from the host."
+    note "That is why readiness is gated on the fabric's own answer, and why section 10"
+    note "refuses to write anything at all rather than write half of it."
   else
     bad "AND RIGHT NOW, THIS HOST IS NOT ISOLATED."
     note "$port — the port this machine is cabled to — is in no tenant bridge domain."
     note "The host is tagging frames with VLAN 310 into a switch port that belongs to"
     note "nobody. Everything above is still true and still correct, and it proves only"
     note "the host half."
-    note "It keeps working because this is a single-node cluster: nothing needs to leave"
-    note "the machine. Add a second node and it would not."
+    note "Nothing local complains, because nothing local depends on the far end existing."
+    note "The frames are tagged and handed to a switch port that is in no tenant."
     echo
     note "That is the failure this design is built around, and it is on your screen: a"
     note "host that is not attached looks EXACTLY like one that is. No error, no alert,"
