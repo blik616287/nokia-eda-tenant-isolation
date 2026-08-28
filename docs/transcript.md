@@ -1,22 +1,24 @@
 # Transcript — a complete run
 
-This is the whole of `make demo`, recorded from a real run against the live fabric. Nothing here
-is reconstructed: it is the terminal output, with the edge registration token masked.
+This is the whole of `make demo`, recorded from a real run against the live fabric. Nothing here is
+reconstructed: it is the terminal output as it appeared.
 
 | | |
 |---|---|
 | Recorded | 2026-08-27 |
 | Result | exit 0, 19 pages |
-| EDA transactions | 6 (a cached run would move this by zero) |
+| EDA transactions | 6 (a replayed run would move this by zero) |
 | Fabric | EDA 26.4.3 Digital Twin, SR Linux 26.3.1, two leaves and a spine |
 | Host | Ubuntu 24.04 on KVM, edge agent v4.9.39-rc.4, k3s v1.35.3+k3s1 |
 | Started from | `EDGE_IP` unset, so the walkthrough resolved the host itself |
 
-Identifiers change every run — EDA allocates VNI, EVI and route targets, and libvirt hands the
-host a different management address on each reboot. If they were identical run to run, it would
-mean we were computing them.
+Identifiers change every run: EDA allocates VNI, EVI and route targets, and libvirt hands the host a
+different management address on each reboot. If they were identical run to run, it would mean we
+were computing them.
 
-The pages that take a minute are 4 and 8: they are driving the fabric, not describing it.
+Pages 4 and 8 take about a minute each. They are driving the fabric, not describing it.
+
+The edge registration token is masked on page 3 by the walkthrough itself, not by editing this file.
 
 ---
 
@@ -165,7 +167,7 @@ The pages that take a minute are 4 and 8: they are driving the fabric, not descr
      it ever registers, because the agent snapshots them at registration and never re-reads them.
   The user-data that was placed on the host before first boot:
 
-  $ sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@192.168.122.206 'sudo sed -n "/^stylus:/,/^install:/p" /var/lib/spectro/userdata | head -20'
+  $ ssh lab-gpu-01 'sudo sed -n "/^stylus:/,/^install:/p" /var/lib/spectro/userdata'
     stylus:
       skipStylusUpgrade: true
       site:
@@ -206,7 +208,7 @@ The pages that take a minute are 4 and 8: they are driving the fabric, not descr
      on the port this machine is cabled to. Rather than describe that, this page asks EDA for it
      and shows the result.
   The host record names VLAN 310. Asking EDA for that tenant now:
-    zz_act5_driver_test.go:143: UNIT READY origin=Managed bd=nokia-demo-bd router=nokia-demo-router vni=204 evi=104 rt=target:1:104
+    zz_act5_driver_test.go:143: UNIT READY origin=Managed bd=nokia-demo-bd router=nokia-demo-router vni=206 evi=107 rt=target:1:107
     zz_act5_driver_test.go:168: BOUND host=lab-gpu-01 node=lab-gpu-01 leaf=leaf1 iface=leaf1-ethernet-1-9 bi=nokia-demo-pool-leaf1-ethernet-1-9 vlan=310 state=Up
     zz_act5_driver_test.go:176: FABRIC CONFIRMS subifs=1 down=0 nodes=1 state=Up
     zz_act5_driver_test.go:178: PERSISTED unit=eda/nokia-demo bd=nokia-demo-bd
@@ -218,7 +220,7 @@ The pages that take a minute are 4 and 8: they are driving the fabric, not descr
 
   $ kubectl --context kind-eda-demo -n eda get bridgedomain nokia-demo-bd -o custom-columns=TENANT:.metadata.name,VNI:.status.vni,EVI:.status.evi,ROUTE-TARGET:.status.importTarget,SUBIFS:.status.numSubinterfaces,STATE:.status.operationalState
     TENANT          VNI   EVI   ROUTE-TARGET   SUBIFS   STATE
-    nokia-demo-bd   204   104   target:1:104   1        Up
+    nokia-demo-bd   206   107   target:1:107   1        Up
 
   And the port it now holds:
 
@@ -291,7 +293,7 @@ The pages that take a minute are 4 and 8: they are driving the fabric, not descr
 
   $ sshpass -p demo ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR demo@192.168.122.206 'sudo k3s kubectl get nodes -o wide'
     NAME         STATUS   ROLES                AGE     VERSION        INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME
-    lab-gpu-01   Ready    control-plane,etcd   4h18m   v1.35.3+k3s1   10.210.0.50   10.210.0.50   Ubuntu 24.04.4 LTS   6.8.0-137-generic   containerd://2.2.2-k3s1
+    lab-gpu-01   Ready    control-plane,etcd   4h40m   v1.35.3+k3s1   10.210.0.50   10.210.0.50   Ubuntu 24.04.4 LTS   6.8.0-137-generic   containerd://2.2.2-k3s1
      ✓ The node's InternalIP is 10.210.0.50 — the isolated address, not the management one.
      section 7  ·  page 8 of 19
 ```
@@ -389,8 +391,8 @@ The pages that take a minute are 4 and 8: they are driving the fabric, not descr
 
   $ kubectl --context kind-eda-demo -n eda get bridgedomains nokia-demo-bd nokia-neighbour-bd -o custom-columns=TENANT:.metadata.name,VNI:.status.vni,EVI:.status.evi,ROUTE-TARGET:.status.importTarget
     TENANT               VNI   EVI   ROUTE-TARGET
-    nokia-demo-bd        204   104   target:1:104
-    nokia-neighbour-bd   207   106   target:1:106
+    nokia-demo-bd        206   107   target:1:107
+    nokia-neighbour-bd   205   105   target:1:105
 
   And the address each one answers at:
     nokia-demo         gateway=10.210.0.1/24
@@ -586,7 +588,7 @@ for i in json.load(sys.stdin)['items']:
 
     FABRIC SIDE — placed by the provider
       leaf1-ethernet-1-9   vlan=310   bd=nokia-demo-bd   state=Up
-      vni=204   evi=104   rt=target:1:104   subifs=1
+      vni=206   evi=107   rt=target:1:107   subifs=1
 
     HOST SIDE — raised by the agent from Palette tags
       enp2s0.310@enp2s0 UP             10.210.0.50/24 10.210.0.100/32 
@@ -745,10 +747,10 @@ for i in json.load(sys.stdin)['items']:
      EDA transactions: 3   (zero would mean nothing actually ran)
 
   $ kubectl --context kind-eda-demo -n eda-system get transactionresults --no-headers | tail -4
-    transaction-000000592   OK       18m           
-    transaction-000000593   OK       87s           
-    transaction-000000594   OK       82s           
-    transaction-000000595   OK       58s           
+    transaction-000000598   OK       21m           
+    transaction-000000599   OK       87s           
+    transaction-000000600   OK       82s           
+    transaction-000000601   OK       57s           
 
      ✓ PROVEN — EVPN tenancy with overlapping address space; host-to-leaf-port resolution
      ✓ and attachment; fail-closed behaviour; host VLAN raised from tags; Kubernetes
@@ -762,6 +764,10 @@ for i in json.load(sys.stdin)['items']:
      ✗ NOT PROVEN — multi-rail hosts and pool scaling on real hardware.
      Modelled and tested in the reconciler, but not exercised against a DGX-class host
      with several fabric-facing NICs, nor against a fabric with thousands of edge links.
+
+     Two more sit on their own pages rather than here: what a booting host can be told
+     without a file being authored for it is section 14, and the host side of east/west
+     and shared storage is section 17. Both are stated as open there.
 
     ▸ Integration companion — §6, the full proven / not-proven table
       https://github.com/blik616287/nokia-eda-tenant-isolation/blob/main/docs/companion.md#6-what-is-proven-and-what-is-not
