@@ -390,9 +390,9 @@ for i in json.load(sys.stdin)['items']:
   run "kubectl --context $KCTX -n $NS get bridgedomain nokia-demo-bd -o jsonpath='FABRIC CONFIRMS  subifs={.status.numSubinterfaces}  nodes={.status.numNodes}  state={.status.operationalState}{\"\n\"}'"
 else
   note "What follows is the provider's conformance suite driven against this fabric. It"
-  note "creates a throwaway tenant (rc-smoke-*), binds a host to a leaf port, asks the"
-  note "fabric to confirm it, then removes everything. The host identifier is a test"
-  note "fixture; the fabric node, the leaf port and the VLAN are the real ones."
+  note "creates a throwaway tenant (rc-smoke-*), binds this host to its leaf port, asks"
+  note "the fabric to confirm it, then removes everything. Only the tenant name is"
+  note "throwaway — the host, the leaf port and the VLAN are all the real ones."
   out=$(gotest go test -count=1 -tags smoke ./internal/smoke/... \
           -run TestReconcilersAgainstLiveCluster -v 2>&1); rc=$?
   printf '%s\n' "$out" | grep -E "UNIT READY|BOUND |FABRIC CONFIRMS|--- PASS" | sed 's/^ *//;s/^/    /' || true
