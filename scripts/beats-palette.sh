@@ -214,8 +214,12 @@ pause || return
 
 beat_4(){
 # ------------------------------------------------------------------
+# Deliberately narrow. This page answers one question -- does the VLAN in the tag
+# exist on the fabric -- and shows only the objects that answer it. The baseline
+# tenants and what tenancy buys you are section 8's subject; dragging them in here
+# meant three rows on screen that each needed a sentence excusing themselves.
 banner "4 · Those tag values are VLANs EDA configured"
-ctx "The tags are not free text. Each one names something that has to exist on the Nokia fabric — a VLAN, and the tenant bridge domain carrying it. So rather than describe that, this page acts on the tag and then shows you the fabric."
+ctx "The tags are not free text. The VLAN in them has to exist on the Nokia fabric, in a tenant, on the port this machine is cabled to. Rather than describe that, this page asks EDA for it and shows the result."
 tagvlan=$(curl -sk -H "ApiKey: $PALETTE_API_KEY" -H "ProjectUid: $PROJECT" \
             "$PALETTE/v1/edgehosts?limit=30" 2>/dev/null | DEMO_HOST_UID="$DEMO_HOST_UID" python3 -c '
 import json,os,sys
@@ -226,55 +230,31 @@ try:
             print((i["metadata"].get("labels") or {}).get("net-iso-vlan","")); break
 except Exception: pass' 2>/dev/null)
 : "${tagvlan:=${NET_ISO_VLAN:-310}}"
+bi="nokia-demo-pool-${DEMO_PORT:-leaf1-ethernet-1-9}"
 
-arc "ACTING ON THE TAG"
-lede "The host record names VLAN $tagvlan. Asking the fabric for that tenant now:"
-if k get bridgeinterface "nokia-demo-pool-${DEMO_PORT:-leaf1-ethernet-1-9}" >/dev/null 2>&1; then
+lede "The host record names VLAN $tagvlan. Asking EDA for that tenant now:"
+if k get bridgeinterface "$bi" >/dev/null 2>&1; then
   note "already configured on the fabric earlier in this session — nothing to do"
 else
   ensure_fabric_half || bad "The provider could not be run here — set FRISKET, or run make demo."
 fi
-note "Nothing there is precomputed. We name a tenant and a port; EDA allocates the"
-note "VNI, the EVI and the route targets and reports them back."
-note "origin= says which path was taken: Managed means we created the tenant, Adopted"
-note "means one already existed under that name and we took it over rather than making"
-note "a second. Both are supported deliberately — a fabric team may want to author"
-note "tenants itself and have PaletteAI attach hosts into them."
+note "Nothing there is precomputed. We name a tenant and a port; EDA allocates the VNI,"
+note "the EVI and the route targets and reports them back. origin=Managed means we"
+note "created the tenant; Adopted means one already existed and we took it over."
 echo
-
-arc "WHAT THE FABRIC HOLDS NOW"
-run "kubectl --context $KCTX -n $NS get bridgedomains"
-note "nokia-demo-bd is the one just created. tenant-a-bd and tenant-b-bd were already"
-note "here — they are the baseline this environment keeps, and they matter in a moment."
-echo
-lede "And the attachment on the port this host is cabled to:"
-run "kubectl --context $KCTX -n $NS get bridgeinterfaces -o custom-columns=INTERFACE:.metadata.name,BRIDGE-DOMAIN:.spec.bridgeDomain,PORT:.spec.interface,VLAN:.spec.vlanID,STATE:.status.operationalState"
-match=$(k get bridgeinterfaces -o jsonpath="{range .items[?(@.spec.vlanID=='$tagvlan')]}{.metadata.name} {.spec.interface} {.spec.bridgeDomain}{\"\n\"}{end}" 2>/dev/null | head -1)
-if [ -n "$match" ]; then
-  set -- $match
-  good "VLAN $tagvlan on port $2, in bridge domain $3 — the tag value, on the switch."
-else
-  bad "VLAN $tagvlan is not on the fabric; the step above did not complete."
-fi
-if k get bridgeinterface standalone-on-populated-vn >/dev/null 2>&1; then
-  note "standalone-on-populated-vn is neither: baseline state from earlier verification,"
-  note "on a different port (leaf1-ethernet-1-7) in tenant-a. It is left in place so the"
-  note "clean-slate check can tell 'baseline' from 'left behind by the last run'."
-fi
-echo
-
-arc "WHY A TENANT IS WORTH ANYTHING"
-lede "The two baseline tenants both answer at the same gateway address:"
-for t in tenant-a tenant-b; do
-  printf '    %s%-10s%s ' "$B" "$t" "$R"
-  k get virtualnetwork "$t" -o jsonpath='gateway={.spec.irbInterfaces[0].spec.ipAddresses[0].ipv4Address.ipPrefix}  bd={.spec.irbInterfaces[0].spec.bridgeDomain}' 2>/dev/null
+if k get bridgedomain nokia-demo-bd >/dev/null 2>&1; then
+  lede "The tenant that just appeared:"
+  run "kubectl --context $KCTX -n $NS get bridgedomain nokia-demo-bd -o custom-columns=TENANT:.metadata.name,VNI:.status.vni,EVI:.status.evi,ROUTE-TARGET:.status.importTarget,SUBIFS:.status.numSubinterfaces,STATE:.status.operationalState"
   echo
-done
-good "Overlapping address space, separated by EVPN — the property this exists to provide."
-note "nokia-demo is a third tenant on the same three switches. It could carry those same"
-note "addresses as well and still never meet either of them. That is what the VLAN in"
-note "the tag actually bought: not a number on an interface, membership of a network"
-note "that other tenants cannot reach."
+  lede "And the port it now holds:"
+  run "kubectl --context $KCTX -n $NS get bridgeinterface $bi -o custom-columns=ATTACHMENT:.metadata.name,PORT:.spec.interface,VLAN:.spec.vlanID,TENANT:.spec.bridgeDomain,STATE:.status.operationalState"
+  echo
+  good "VLAN $tagvlan on leaf1-ethernet-1-9, in nokia-demo-bd — the value on the host"
+  good "record, now on the switch. Section 8 comes back to this fabric and to what"
+  good "belonging to a tenant actually buys you."
+else
+  bad "The tenant is not on the fabric — the step above did not complete."
+fi
 pause || return
 }
 
