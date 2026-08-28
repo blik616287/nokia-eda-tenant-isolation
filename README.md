@@ -133,6 +133,7 @@ fails in a way that looks like a cluster still coming up.
 | `docs/transcript.md` | A complete recorded run — the terminal output of all nineteen pages. |
 | `docs/transcript-fabric.md` | The same for `make demo-fabric` — the seventeen-page cut. |
 | `docs/talking-points.md` | Context for the room: where RFC-0022 sits, how EDA objects map onto its four planes, and what is still open. |
+| `docs/run-sheet-fabric.md` | The same for `make demo-fabric`, in the order that cut runs. |
 | `docs/run-sheet.md` | One or two sentences to say per page, for presenting at pace. |
 | `docs/runbook.md` | Rationale, expected output, and what to say when something is not up. |
 | `docs/verification-summary.md` | Two-page summary of what was verified and how. |

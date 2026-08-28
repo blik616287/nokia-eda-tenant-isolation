@@ -1,16 +1,20 @@
-# What to say, page by page
+# What to say — the fabric cut
 
-Everything below is spoken. Read it, say it in your own words, move on — no page needs
-more than a minute.
+`make demo-fabric`. Seventeen pages, in the order they run. Everything below is spoken; say it in
+your own words and move on. No page needs more than a minute.
+
+This cut leaves out the three pages that claim Kubernetes takes its identity from the tenant VLAN,
+which [RFC-0022](https://github.com/spectrocloud/mural/pull/9206) revisits. Nothing else changes.
+For the full nineteen, see [run-sheet.md](run-sheet.md).
 
 ```
-make demo          enter · p back · r replay · g 12 jump · q quit
+make demo-fabric      enter · p back · r replay · g 19 jump · q quit
 ```
 
-For the seventeen-page cut that avoids what RFC-0022 revisits, see
-[run-sheet-fabric.md](run-sheet-fabric.md).
 
 ---
+
+## Before anyone is watching
 
 **0 · Clean-slate check**
 
@@ -18,7 +22,10 @@ Before I claim anything, this checks the fabric is in a known state. Leftover st
 earlier run can make a broken fabric look completely healthy, so nothing in here is claimed
 until the starting point is verified.
 
+
 ---
+
+## What we have
 
 **1 · The edge host, in Palette**
 
@@ -57,23 +64,10 @@ the address off its own tags. The address is the tag. Under RFC-0022 this interf
 North-South plane rather than the one the node binds to — either way it's built here, from tags, by
 the agent.
 
-**6 · The cluster on that host**
-
-Kubernetes came up on the isolated address, not the management one. That's the whole
-architectural argument in one line — the node's identity on the network is the tenant
-address, and that's only possible because the interface existed before the cluster
-bootstrapped.
-
-**7 · Where the cluster's traffic actually goes**
-
-Pod addresses aren't tenant addresses — they come from the CNI's own pool. What makes them
-isolated is the interface every packet leaves on. So I'll ask the kernel: traffic to another
-node in the tenant subnet goes out the tagged VLAN, sourced from the tenant address. Calico
-wraps pod traffic in IPIP with that same outer address, so the tenant VLAN carries the pod
-network whatever the pods use inside it. To be precise about what this shows — it proves
-traffic leaves on the tenant VLAN. It doesn't prove another tenant can't receive it.
 
 ---
+
+## How it works
 
 **8 · The fabric, and what "isolated" means here**
 
@@ -111,13 +105,6 @@ isolated. No error, no alert. The first person to find out is whoever shouldn't 
 to reach it. So anything short of complete success is treated as failure, and these tests
 prove we write nothing at all rather than half of it.
 
-**11 · The host side — the node IP, and the VIP contract**
-
-This is what those tag values then determined. Kubernetes took its node address from that
-interface. And when the control-plane address falls outside the tenant subnet, the agent
-refuses to deploy at all — that's the isolation contract enforcing itself, and it's
-independent evidence the tags were genuinely parsed rather than just accepted.
-
 **12 · Both halves, at the same time**
 
 The same VLAN on the switch port and on the machine cabled to it, put there by two systems
@@ -140,7 +127,10 @@ the host presents only its MAC address, and is told what it belongs to, derived 
 fabric. The transport underneath is plain HTTP on the management network — a real deployment
 would do this over PXE or an out-of-band installer. We're showing the shape, not the channel.
 
+
 ---
+
+## Closing
 
 **15 · What is proven, and what is not**
 
@@ -175,11 +165,18 @@ This created real objects on a real fabric, so it removes them. There's a practi
 well — this machine has one cabled port, and anything left behind would make the next run fail
 over it. But mostly, a system that only knows how to create things isn't finished.
 
+
 ---
 
 ## If you lose the thread
 
-Let me come back to what this is doing: the switch puts this host's port in one tenant's
-network, and the host tags its traffic to match. That's the whole mechanism.
+Let me come back to what this is doing: the switch puts this host's port in one tenant's network,
+and the host tags its traffic to match. That's the whole mechanism.
 
 I'd have to check — that's outside what I built. Let me take it away.
+
+## If RFC-0022 comes up
+
+Everything here is unchanged by it. It moves the node's identity onto a management NIC and leaves
+this interface carrying North-South; the fabric side, the objects and the tenancy are the same. The
+three pages that would have claimed otherwise are the three this cut leaves out.
