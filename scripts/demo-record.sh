@@ -671,6 +671,10 @@ bad "NOT PROVEN — multi-rail hosts and pool scaling on real hardware."
 note "Modelled and tested in the reconciler, but not exercised against a DGX-class host"
 note "with several fabric-facing NICs, nor against a fabric with thousands of edge links."
 echo
+note "Two more sit on their own pages rather than here: what a booting host can be told"
+note "without a file being authored for it is section 14, and the host side of east/west"
+note "and shared storage is section 17. Both are stated as open there."
+echo
 link "Integration companion — §6, the full proven / not-proven table" "$COMPANION#6-what-is-proven-and-what-is-not"
 pause || return
 }

@@ -167,9 +167,13 @@ delete by hand, do it in that order.
 | Kubernetes runs on the isolated address | **Proven** |
 | **Traffic cannot cross between tenants** | **Not proven** — needs `SIMULATE=false` and a licence |
 | Multi-rail hosts; pool scaling on real hardware | **Not proven** — needs hardware |
+| Per-host configuration derived at boot rather than authored | **Demonstrated** — over HTTP, not over PXE or out-of-band |
+| Fleet-scale bootstrap over PXE / out-of-band transport | **Not proven** — the shape is shown, the channel is not |
+| IPAM for a host's address inside a tenant subnet | **Unowned** — carried as a reservation |
+| A host on more than one network (e.g. a shared storage VLAN) | **Fabric side supported; host side not** |
 
-The last two are stated plainly because the first five are stronger for it. See `docs/companion.md`
-§6 for the detail, and §1 for what we are asking Nokia to confirm.
+The unproven rows are stated plainly because the proven ones are stronger for it. See
+`docs/companion.md` §6 for the full table, and §1 for what we are asking Nokia to confirm.
 
 ## Security
 

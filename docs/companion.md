@@ -128,8 +128,12 @@ route target into status. Supports **adopt** (an operator-authored VN already ex
 
 ### 4.2 `EDAPortAttachmentRequest` — the per-pool binding
 
-One per ComputePool. Resolves every host in the pool to a physical leaf port and creates one
-`BridgeInterface` per port, on the subnet's VLAN.
+One per ComputePool. Creates one `BridgeInterface` per leaf port, on the subnet's VLAN.
+
+The request originally carried a host identity and resolved it to a port, which is §4.3 below and
+the part being replaced: under RFC-0021 §4e it carries the **port itself**, taken from the Palette
+host record. What gets written to the fabric is unchanged; what disappears is the resolution step
+and its dependency on topology intent.
 
 ### 4.3 Host to leaf port resolution (**the part we are replacing**)
 
@@ -262,10 +266,21 @@ one.
 controller the host reaches *over that interface* is circular. We avoid it here by carrying the
 isolation tags in cloud-init, so the host knows its VLAN and address before it talks to anything —
 the same shape as storing per-server addressing in a provisioning database and having it be correct
-at deploy time. What we have **not** solved is doing that at fleet scale without a PXE or
-out-of-band provisioning path underneath. That is a real gap, it is not an EDA gap, and it is not
-one this demo closes. DPU-based addressing would sidestep it — see §8 for why we are not
-counting on that.
+at deploy time.
+
+The demonstration now goes one step further than that, and it is worth being exact about which step.
+A host presents only its MAC address and is served its configuration, derived live: the pool
+assignment gives the tenant, the tenant's subnet and VLAN are read from EDA, and the reserved address
+is checked against that subnet before anything is emitted — ask for the same host against a different
+tenant and it refuses. So **no per-host file is authored anywhere**, which is the part that did not
+scale.
+
+What that does **not** solve is the transport. It runs over plain HTTP on the management network; a
+real deployment would carry it over PXE, iPXE or an out-of-band installer, and we are not claiming
+otherwise. Nor does it settle IPAM: the tenant's subnet is the fabric's, but which address inside it
+belongs to a given host is a decision nothing currently owns, so it is carried as a reservation.
+That remains a real gap, it is not an EDA gap, and DPU-based addressing would sidestep it — see §8
+for why we are not counting on that.
 
 **Why EDA and not the existing provider.** Multi-tenant EVPN on switches is not new — the providers
 already integrated do it. The constraint is vendor coverage: today's integration is limited to one
@@ -323,10 +338,12 @@ all of them.
 | Kubernetes runs on the isolated address | **Proven** |
 | **Traffic cannot cross between tenants** | **NOT proven** — needs `SIMULATE=false` + licence |
 | Multi-rail hosts, pool scaling on real hardware | **NOT proven** — needs hardware |
-| Fleet-scale bootstrap without PXE / out-of-band provisioning | **NOT proven** — see §5.1 |
+| Per-host configuration derived at boot rather than authored | **Demonstrated** — identity in, configuration out, live from the fabric |
+| Fleet-scale bootstrap over PXE / out-of-band transport | **NOT proven** — the shape is shown over HTTP; the channel is not, see §5.1 |
+| IPAM for host addresses within a tenant subnet | **Unowned** — carried as a reservation, see §5.1 |
 | A host on more than one network (e.g. shared storage VLAN) | **Fabric side supported; host side not** — see §5.2 |
 
-We are explicit about the last two because the first five are stronger if we are not overstating.
+We are explicit about the unproven rows because the proven ones are stronger if we are not overstating.
 
 ---
 
@@ -350,6 +367,13 @@ CR services.eda.nokia.com/v2/IRBInterface/compute has conflicting updates
 
 Overlapping *gateways* are fine — `tenant-a` and `tenant-b` both use `10.200.0.1/24` — it is the CR
 name that clashes. Is namespacing subnet names per-VirtualNetwork intended, or should we prefix?
+
+Seen a second time since, and worth recording because of how it presents: cloning a tenant to create
+a neighbour at the same address, we renamed the bridge domain and the router but left the IRB called
+`gpu`. The `VirtualNetwork` was **accepted**, then never realised — no bridge domain, no status, and
+a failed transaction some way down the queue. Nothing about the rejection points at the name. Every
+name inside a `VirtualNetwork` spec is a CR name, and the accept-then-fail shape makes that expensive
+to learn.
 
 **7.3 Orphaned `BridgeInterface` poisons the whole transaction queue** (§3.5). Is failing the entire
 batch on one dangling dependency the intended behaviour, or should the offending intent be isolated?
