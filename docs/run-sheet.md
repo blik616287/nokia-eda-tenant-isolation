@@ -72,10 +72,12 @@ traffic leaves on the tenant VLAN. It doesn't prove another tenant can't receive
 
 **8 · The fabric, and what "isolated" means here**
 
-Isolation here is EVPN, not a firewall rule. Each tenant gets its own bridge domain with its
-own identifiers, and the consequence is on screen: both tenants answer at the same gateway
-address and neither can see the other. Overlapping address space, separated by the fabric.
-That's the property this whole thing exists to provide.
+Your node is in one tenant, and one tenant doesn't demonstrate isolation, so here's a second one
+created on the same three switches with the identical gateway address. Same address, same fabric,
+two tenants — and what keeps them apart is the route target. Route targets decide which network
+imports whose routes, and these two don't import each other's, so neither can learn the other's
+addresses at all. It isn't a filter on traffic; the routes are never exchanged. Your node is in the
+first one, and nothing in the second can reach it even though both are using the same address.
 
 **9 · A GPU host bound to its physical leaf port**
 

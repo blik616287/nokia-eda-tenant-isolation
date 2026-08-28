@@ -126,9 +126,10 @@ verify:
 clean:
 	@echo "removing demo fabric state…"
 	@for set in "nokia-demo-pool-leaf1-ethernet-1-9 nokia-demo nokia-demo-bd" \
+	            "- nokia-neighbour nokia-neighbour-bd" \
 	            "rc-smoke-pool-leaf1-ethernet-1-9 rc-smoke rc-smoke-bd"; do \
 	  set -- $$set; \
-	  kubectl --context $(KCTX) -n $(NS) delete bridgeinterface $$1 --ignore-not-found --timeout=60s >/dev/null 2>&1; \
+	  [ "$$1" = "-" ] || kubectl --context $(KCTX) -n $(NS) delete bridgeinterface $$1 --ignore-not-found --timeout=60s >/dev/null 2>&1; \
 	  sleep 3; \
 	  kubectl --context $(KCTX) -n $(NS) delete virtualnetwork  $$2 --ignore-not-found --timeout=60s >/dev/null 2>&1; \
 	  sleep 6; \
@@ -136,7 +137,7 @@ clean:
 	done
 	@echo "remaining demo objects: $$(kubectl --context $(KCTX) -n $(NS) \
 	  get virtualnetworks,bridgedomains,bridgeinterfaces --no-headers 2>/dev/null \
-	  | grep -cE 'nokia-demo|rc-smoke')"
+	  | grep -cE 'nokia-demo|nokia-neighbour|rc-smoke')"
 
 destroy: clean
 	@echo "removing the edge host and its Palette records…"

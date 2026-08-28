@@ -148,6 +148,7 @@ topology(){
 }
 
 DEMO_SETS=( "nokia-demo-pool-leaf1-ethernet-1-9|nokia-demo|nokia-demo-bd"
+            "|nokia-neighbour|nokia-neighbour-bd"
             "rc-smoke-pool-leaf1-ethernet-1-9|rc-smoke|rc-smoke-bd" )
 BASELINE_VNS="tenant-a tenant-b"
 
@@ -155,7 +156,7 @@ clean_fabric(){
   local had=0 bi vn bd
   for pair in "${DEMO_SETS[@]}"; do
     IFS='|' read -r bi vn bd <<<"$pair"
-    if k get bridgeinterface "$bi" >/dev/null 2>&1; then
+    if [ -n "$bi" ] && k get bridgeinterface "$bi" >/dev/null 2>&1; then
       had=1; k delete bridgeinterface "$bi" --timeout=60s >/dev/null 2>&1; sleep 5
     fi
     if k get virtualnetwork "$vn" >/dev/null 2>&1; then
@@ -197,7 +198,7 @@ survey(){
   done
   [ "$dirty" = 2 ] || good "baseline tenants present — tenant-a, tenant-b"
   leftovers=$(k get virtualnetworks,bridgedomains,bridgeinterfaces --no-headers 2>/dev/null \
-              | grep -cE 'nokia-demo|rc-smoke')
+              | grep -cE 'nokia-demo|nokia-neighbour|rc-smoke')
   if [ "${leftovers:-0}" -gt 0 ]; then
     note "$leftovers leftover object(s) from a previous run"; dirty=1
   else
@@ -288,25 +289,47 @@ sec_7(){ beat_7; }
 sec_8(){
 # ---------------------------------------------------------------------------
 banner "8 · The fabric, and what \"isolated\" means here"
-ctx "Isolation here is an EVPN construct, not a firewall rule: a MAC-VRF per tenant with its own EVI and route targets, so two tenants can carry identical address space without seeing each other."
-# The fabric inventory is page 2's subject and is not repeated here. This page has
-# one job: show what a tenant IS, using the two that exist independently of this
-# demo, so the property is not being demonstrated with objects we just made.
+ctx "Your node is in nokia-demo. To show what that membership is actually worth, this page creates a second tenant on the same three switches and gives it the IDENTICAL gateway address — then shows what keeps them apart."
 topology
-lede "Two tenants that predate this demo, with identifiers allocated by EDA, not by us:"
-run "kubectl --context $KCTX -n $NS get bridgedomains tenant-a-bd tenant-b-bd -o custom-columns=TENANT:.metadata.name,VNI:.status.vni,EVI:.status.evi,ROUTE-TARGET:.status.importTarget,STATE:.status.operationalState"
-note "VNI, EVI and route targets come from EDA's allocator and are read back into status."
-note "If they were identical run to run, it would mean we were computing them."
+lede "Creating a neighbour tenant at the same address as yours:"
+if k get virtualnetwork nokia-neighbour >/dev/null 2>&1; then
+  note "already on the fabric from earlier in this session"
+else
+  # Cloned from the host's own tenant so it is genuinely the same shape, with every
+  # name made unique -- each name inside the spec becomes a CR of its own, and a
+  # collision fails the transaction while leaving a VirtualNetwork that never realises.
+  tmp=$(mktemp) || true
+  k get virtualnetwork nokia-demo -o json 2>/dev/null | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+peer=json.loads(json.dumps(d["spec"]).replace("nokia-demo","nokia-neighbour"))
+peer["irbInterfaces"][0]["name"]="neighbour-gw"
+peer["bridgeDomains"][0]["spec"]["description"]="Second tenant at the identical address"
+json.dump({"apiVersion":d["apiVersion"],"kind":d["kind"],
+           "metadata":{"name":"nokia-neighbour","namespace":"eda"},"spec":peer}, sys.stdout)' > "$tmp" 2>/dev/null
+  if [ -s "$tmp" ]; then k apply -f "$tmp" 2>&1 | sed 's/^/    /'; sleep 25; else bad "could not clone the tenant"; fi
+  rm -f "$tmp"
+fi
 echo
-lede "And both answer at the same gateway address, on different bridge domains:"
-for t in tenant-a tenant-b; do
-  printf '    %s%-10s%s ' "$B" "$t" "$R"
-  k get virtualnetwork "$t" -o jsonpath='gateway={.spec.irbInterfaces[0].spec.ipAddresses[0].ipv4Address.ipPrefix}  bd={.spec.irbInterfaces[0].spec.bridgeDomain}' 2>/dev/null
+lede "Your tenant, and its new neighbour:"
+run "kubectl --context $KCTX -n $NS get bridgedomains nokia-demo-bd nokia-neighbour-bd -o custom-columns=TENANT:.metadata.name,VNI:.status.vni,EVI:.status.evi,ROUTE-TARGET:.status.importTarget"
+echo
+lede "And the address each one answers at:"
+for t in nokia-demo nokia-neighbour; do
+  printf '    %s%-18s%s ' "$B" "$t" "$R"
+  k get virtualnetwork "$t" -o jsonpath='gateway={.spec.irbInterfaces[0].spec.ipAddresses[0].ipv4Address.ipPrefix}' 2>/dev/null
   echo
 done
-good "Overlapping tenant address space, separated by EVPN."
-note "This host's tenant, created back on page 4, is a third on the same three switches."
-note "It could carry those same addresses and still never meet either of them."
+echo
+good "The same address, on the same fabric, in two different tenants."
+note "What separates them is the route target. Route targets decide which VRF imports"
+note "whose routes, and these two do not import each other's — so neither network can"
+note "learn the other's addresses at all. It is not a filter applied to traffic; the"
+note "routes are never exchanged in the first place."
+note "Your node sits in nokia-demo. Nothing in nokia-neighbour can reach it and it can"
+note "reach nothing there, even though both are using 10.210.0.1. That is the property"
+note "this whole integration exists to provide, and it is why a customer's address plan"
+note "stops being something anyone else has to be consulted about."
 echo
 link "EDA documentation" "$EDA_DOCS"
 link "SR Linux documentation" "$SRL_DOCS"
